@@ -80,9 +80,9 @@
       </div>
       <p class="hint">Paste routes, one per line: <code>METHOD /path</code> (method optional, defaults to GET).
         Or import a full <code>engine.sh</code> suite JSON (<code>suites/*.json</code>) below to get its
-        staged/parallel execution, variable capture between steps, and known-bug flags for free.
+        staged/sequential execution, variable capture between steps, and known-bug flags for free.
         Drag the <code>⠿</code> handle on a row to move it into a different group, or drag a group's
-        header to reorder groups — rows in the same group run in parallel; groups run top to bottom.</p>
+        header to reorder groups — every row waits for the previous response, and groups run top to bottom.</p>
       <textarea id="pasteBox" rows="4" placeholder="GET /admin/courses/queue
 POST /admin/courses/{id}/approve
 GET /admin/courses/queue?tab=PENDING"></textarea>

@@ -76,6 +76,7 @@
   // Live variable store for ${VAR} substitution and captures.
   let VARS = {};
   let tokensVisible = false;
+  let runInProgress = false;
 
   let nextId = 1;
   const newRowId = () => `r${nextId++}`;
@@ -817,8 +818,8 @@
       const hint = document.createElement('span');
       hint.className = 'lane-hint';
       hint.textContent = idx === 0
-        ? 'runs first · rows here run in parallel'
-        : 'runs after the group above · rows here run in parallel';
+        ? 'runs first · rows run one at a time in order'
+        : 'runs after the group above · rows run one at a time in order';
       header.appendChild(hint);
 
       const headerActions = document.createElement('div');
@@ -1091,9 +1092,10 @@
       save();
     });
     const runOneBtn = document.createElement('button');
-    runOneBtn.className = 'btn primary small row-action';
+    runOneBtn.className = 'btn primary small row-action run-endpoint-btn';
     runOneBtn.textContent = 'Run';
     runOneBtn.title = 'Run this endpoint';
+    runOneBtn.disabled = runInProgress;
     runOneBtn.addEventListener('click', () => runStaged([row], false));
     const removeBtn = document.createElement('button');
     removeBtn.className = 'row-remove';
@@ -1289,7 +1291,7 @@
     el('sumFail').textContent = fail;
   }
 
-  // ---- running (grouped by lane, parallel within a lane, sequential capture) --
+  // ---- running (groups and rows execute sequentially, with capture between rows) --
 
   function buildRequestSnapshot(row) {
     const url = joinUrl(state.baseUrl, subst(row.path.trim()));
@@ -1416,27 +1418,58 @@
     return state.laneOrder.filter((id) => byLane.has(id)).map((id) => byLane.get(id));
   }
 
+  function syncRunControls() {
+    const runAllButton = el('runAllBtn');
+    if (runAllButton) {
+      runAllButton.disabled = runInProgress;
+      runAllButton.textContent = runInProgress ? 'Running…' : 'Run all';
+    }
+    document.querySelectorAll('.run-endpoint-btn').forEach((button) => {
+      button.disabled = runInProgress;
+    });
+    el('rowsList')?.setAttribute('aria-busy', String(runInProgress));
+  }
+
   async function runStaged(rows, resetVars) {
-    seedVars(resetVars);
-    const lanes = groupByLane(rows);
-    let stopped = false;
+    if (runInProgress) {
+      toast('Wait for the current run to finish');
+      return;
+    }
 
-    for (const laneRows of lanes) {
-      if (stopped) {
-        for (const row of laneRows) { row.result = { state: 'skipped' }; updateRowResult(row); }
-        continue;
+    runInProgress = true;
+    syncRunControls();
+    try {
+      seedVars(resetVars);
+      const lanes = groupByLane(rows);
+      let stopped = false;
+
+      for (const laneRows of lanes) {
+        if (stopped) {
+          for (const row of laneRows) { row.result = { state: 'skipped' }; updateRowResult(row); }
+          continue;
+        }
+
+        for (const row of laneRows) {
+          if (stopped) {
+            row.result = { state: 'skipped' };
+            updateRowResult(row);
+            continue;
+          }
+
+          row.result = { state: 'pending' };
+          updateRowResult(row);
+          updateSummary();
+
+          const fetched = await fireRequest(row);
+          const outcome = await evaluateAndCapture(row, fetched);
+          updateRowResult(row);
+          updateSummary();
+          if (outcome === 'hardfail') stopped = true;
+        }
       }
-      for (const row of laneRows) { row.result = { state: 'pending' }; updateRowResult(row); }
-      updateSummary();
-
-      const fetched = await Promise.all(laneRows.map((row) => fireRequest(row)));
-
-      for (let i = 0; i < laneRows.length; i++) {
-        const outcome = await evaluateAndCapture(laneRows[i], fetched[i]);
-        updateRowResult(laneRows[i]);
-        if (outcome === 'hardfail') stopped = true;
-      }
-      updateSummary();
+    } finally {
+      runInProgress = false;
+      syncRunControls();
     }
   }
 
