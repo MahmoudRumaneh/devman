@@ -16,6 +16,7 @@
   ];
   const DEFAULT_TEMPLATE = {
     base_url: 'http://localhost:3000/api/v1',
+    tokens: Object.fromEntries(DEFAULT_TOKEN_PROFILES.map((profile) => [profile.varName, ''])),
     vars: {},
     steps: [
       {
@@ -63,7 +64,7 @@
     baseUrl: 'http://localhost:3000/api/v1',
     tenantId: '',
     sendTenantHeader: true,
-    tokens: { admin: '', creator: '', student: '' },
+    tokens: Object.fromEntries(DEFAULT_TOKEN_PROFILES.map((profile) => [profile.key, ''])),
     tokenProfiles: DEFAULT_TOKEN_PROFILES.map((profile) => ({ ...profile })),
     rows: [],
     laneOrder: [], // array of lane ids, in the order they execute — this replaces numeric "stage"
@@ -165,6 +166,85 @@
       .replace(/^_+|_+$/g, '')
       .toUpperCase();
     return normalized.endsWith('_TOKEN') ? normalized : normalized ? `${normalized}_TOKEN` : '';
+  }
+
+  function isRecord(value) {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+  }
+
+  function importedTokenProfileKey(varName) {
+    const base = varName
+      .toLowerCase()
+      .replace(/_token$/, '')
+      .replace(/[^a-z0-9_]+/g, '_')
+      .replace(/^_+|_+$/g, '') || 'custom';
+    let key = base;
+    let suffix = 2;
+    const usedKeys = new Set(state.tokenProfiles.map((profile) => profile.key));
+    while (usedKeys.has(key)) key = `${base}_${suffix++}`;
+    return key;
+  }
+
+  function importedTokenLabel(varName) {
+    return varName
+      .replace(/_TOKEN$/, '')
+      .split('_')
+      .filter(Boolean)
+      .map((part) => part.charAt(0) + part.slice(1).toLowerCase())
+      .join(' ') || 'Imported token';
+  }
+
+  function importTokenConfiguration(parsed) {
+    if (!isRecord(parsed)) return 0;
+
+    const rawProfiles = Array.isArray(parsed.tokenProfiles)
+      ? parsed.tokenProfiles
+      : Array.isArray(parsed.token_profiles) ? parsed.token_profiles : null;
+    if (rawProfiles) {
+      const profiles = rawProfiles.map((profile) => {
+        if (!isRecord(profile)) return profile;
+        return {
+          ...profile,
+          varName: profile.varName ?? profile.var_name,
+        };
+      });
+      state.tokenProfiles = normalizeTokenProfiles(profiles);
+    }
+
+    if (!isRecord(parsed.tokens)) return 0;
+
+    for (const rawName of Object.keys(parsed.tokens)) {
+      const varName = normalizeVarName(rawName);
+      const existing = state.tokenProfiles.find((profile) =>
+        profile.key === rawName || profile.varName === rawName || profile.varName === varName);
+      if (existing || !/^[A-Z][A-Z0-9_]*_TOKEN$/.test(varName)) continue;
+      state.tokenProfiles.push({
+        key: importedTokenProfileKey(varName),
+        label: importedTokenLabel(varName),
+        varName,
+        scope: 'Imported token',
+        locked: false,
+      });
+    }
+
+    const previousTokens = state.tokens;
+    state.tokens = Object.fromEntries(state.tokenProfiles.map((profile) => [
+      profile.key,
+      previousTokens[profile.key] || '',
+    ]));
+
+    let importedCount = 0;
+    for (const [rawName, rawValue] of Object.entries(parsed.tokens)) {
+      if (typeof rawValue !== 'string') continue;
+      const varName = normalizeVarName(rawName);
+      const profile = state.tokenProfiles.find((item) =>
+        item.key === rawName || item.varName === rawName || item.varName === varName);
+      if (!profile) continue;
+      const token = rawValue.trim().replace(/^Bearer\s+/i, '');
+      state.tokens[profile.key] = token;
+      if (token) importedCount += 1;
+    }
+    return importedCount;
   }
 
   function tokenProfileForRole(role) {
@@ -614,13 +694,26 @@
   // ---- suite (engine.sh JSON) import -----------------------------------------
 
   function importParsedJson(parsed) {
-    if (Array.isArray(parsed.steps)) return importEngineSuite(parsed);
+    if (!isRecord(parsed)) throw new Error('The JSON root must be an object');
+    const importedTokenCount = importTokenConfiguration(parsed);
+    if (Array.isArray(parsed.steps)) {
+      return { ...importEngineSuite(parsed), importedTokenCount, tokensOnly: false };
+    }
 
     state.baseUrl = parsed.baseUrl ?? state.baseUrl;
     state.tenantId = parsed.tenantId ?? state.tenantId;
     state.sendTenantHeader = parsed.sendTenantHeader ?? state.sendTenantHeader;
     suiteStaticVars = parsed.suiteStaticVars || {};
-    const rows = (parsed.rows || []).map((r) => emptyRow(r));
+    if (!Array.isArray(parsed.rows)) {
+      return {
+        rows: state.rows,
+        laneOrder: state.laneOrder,
+        importedTokenCount,
+        tokensOnly: isRecord(parsed.tokens),
+      };
+    }
+
+    const rows = parsed.rows.map((r) => emptyRow(r));
     let laneOrder = parsed.laneOrder;
     if (!laneOrder || !laneOrder.length) {
       const id = newLaneId();
@@ -629,7 +722,7 @@
     } else {
       rows.forEach((r) => { if (!r.laneId) r.laneId = laneOrder[0]; });
     }
-    return { rows, laneOrder };
+    return { rows, laneOrder, importedTokenCount, tokensOnly: false };
   }
 
   function importEngineSuite(parsed) {
@@ -1578,6 +1671,8 @@
       save();
     });
 
+    el('importTokensBtn').addEventListener('click', () => el('importFile').click());
+
     el('showTokens').addEventListener('click', () => {
       tokensVisible = !tokensVisible;
       el('showTokens').textContent = tokensVisible ? 'Hide tokens' : 'Show tokens';
@@ -1604,13 +1699,25 @@
     try {
       const parsed = JSON.parse(await file.text());
       const isSuite = Array.isArray(parsed.steps);
-      const { rows, laneOrder } = importParsedJson(parsed);
+      const { rows, laneOrder, importedTokenCount, tokensOnly } = importParsedJson(parsed);
       state.rows = rows;
       state.laneOrder = laneOrder;
       syncConnectionInputs();
+      seedVars(true);
       renderRows();
       save();
-      toast(isSuite ? `Imported suite (${rows.length} steps, staged/chained)` : `Imported ${rows.length} rows`);
+      const tokenSummary = importedTokenCount
+        ? ` · ${importedTokenCount} token${importedTokenCount === 1 ? '' : 's'}`
+        : '';
+      if (tokensOnly) {
+        toast(importedTokenCount
+          ? `Imported ${importedTokenCount} token${importedTokenCount === 1 ? '' : 's'}`
+          : 'Token JSON imported');
+      } else {
+        toast(isSuite
+          ? `Imported suite (${rows.length} steps${tokenSummary})`
+          : `Imported ${rows.length} rows${tokenSummary}`);
+      }
     } catch (err) {
       toast(`Import failed: ${err}`);
     }
@@ -1696,10 +1803,18 @@
         baseUrl: state.baseUrl,
         tenantId: state.tenantId,
         sendTenantHeader: state.sendTenantHeader,
+        tokens: Object.fromEntries(state.tokenProfiles.map((profile) => [
+          profile.varName,
+          state.tokens[profile.key] || '',
+        ])),
+        tokenProfiles: state.tokenProfiles
+          .filter((profile) => !profile.locked)
+          .map((profile) => ({ ...profile })),
         laneOrder: state.laneOrder,
         rows: state.rows.map(({ result, ...rest }) => rest),
       };
       downloadJson(`${el('suiteName').value || 'api-test-studio'}.json`, data);
+      toast('JSON exported with token values — store it securely');
     });
 
     el('templateBtn').addEventListener('click', () => {

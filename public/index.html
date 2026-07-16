@@ -55,10 +55,11 @@
 
     <section class="card setup-card">
       <h2>Tokens</h2>
-      <p class="hint">Paste tokens for tenant roles and user roles. Existing suites can still use <code>ADMIN_TOKEN</code>; platform APIs can use <code>PLATFORM_ADMIN_TOKEN</code>.</p>
+      <p class="hint">Paste tokens for tenant roles and user roles, or import them from a JSON file using the top-level <code>tokens</code> object. Existing suites can still use <code>ADMIN_TOKEN</code>; platform APIs can use <code>PLATFORM_ADMIN_TOKEN</code>.</p>
       <div id="tokenList" class="token-list"></div>
       <div class="btn-row compact">
         <button id="addTokenBtn" class="btn primary small" type="button">+ Add token</button>
+        <button id="importTokensBtn" class="btn ghost small" type="button">Import token JSON</button>
         <button id="showTokens" class="btn ghost small" type="button">Show tokens</button>
         <button id="clearTokens" class="btn ghost small" type="button">Clear pasted tokens</button>
       </div>
@@ -189,7 +190,7 @@ GET /admin/courses/queue?tab=PENDING"></textarea>
         </li>
         <li>
           <span class="guide-step-number">2</span>
-          <div><strong>Get the JSON file</strong><span>In Workspace, press “Download template,” then edit and save the downloaded file.</span></div>
+          <div><strong>Get the JSON file</strong><span>In Workspace, press “Download template,” then add your tokens and endpoints before saving the file.</span></div>
         </li>
         <li>
           <span class="guide-step-number">3</span>
