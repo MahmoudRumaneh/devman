@@ -691,6 +691,17 @@
     }[c]));
   }
 
+  function formatImportedBody(body) {
+    if (body === undefined || body === null || body === '') return '';
+    if (typeof body !== 'string') return JSON.stringify(body, null, 2);
+
+    try {
+      return JSON.stringify(JSON.parse(body), null, 2);
+    } catch (_) {
+      return body;
+    }
+  }
+
   // ---- suite (engine.sh JSON) import -----------------------------------------
 
   function importParsedJson(parsed) {
@@ -713,7 +724,11 @@
       };
     }
 
-    const rows = parsed.rows.map((r) => emptyRow(r));
+    const rows = parsed.rows.map((rawRow) => {
+      const row = emptyRow(isRecord(rawRow) ? rawRow : {});
+      row.body = formatImportedBody(row.body);
+      return row;
+    });
     let laneOrder = parsed.laneOrder;
     if (!laneOrder || !laneOrder.length) {
       const id = newLaneId();
@@ -773,7 +788,7 @@
       role,
       authVar,
       headers: step.headers || {},
-      body: step.body !== undefined && step.body !== null ? JSON.stringify(step.body) : '',
+      body: formatImportedBody(step.body),
       expect,
       assert: step.assert || [],
       capture: step.capture || {},
