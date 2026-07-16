@@ -1,6 +1,6 @@
 'use strict';
 
-const jqPromise = require('jq-web');
+const { raw } = require('jq-wasm/inline');
 const { getErrorMessage, getJsonBody, sendJson } = require('../lib/api');
 
 module.exports = async function jq(request, response) {
@@ -14,16 +14,19 @@ module.exports = async function jq(request, response) {
     const mode = payload.mode === 'assert' ? 'assert' : 'capture';
     const filter = typeof payload.filter === 'string' ? payload.filter : '.';
     const input = typeof payload.input === 'string' ? payload.input : '';
-    const parsedInput = JSON.parse(input);
-    const jq = await jqPromise;
-    const result = jq.json(parsedInput, filter);
+    JSON.parse(input);
 
-    if (mode === 'assert') return sendJson(response, 200, { ok: true, pass: Boolean(result) });
+    if (mode === 'assert') {
+      const result = await raw(input, filter, ['-e']);
+      if (result.stderr && result.exitCode > 1) {
+        return sendJson(response, 200, { ok: false, error: result.stderr.trim() });
+      }
+      return sendJson(response, 200, { ok: true, pass: result.exitCode === 0 });
+    }
 
-    const value = result === null || result === undefined
-      ? ''
-      : typeof result === 'object' ? JSON.stringify(result) : String(result);
-    return sendJson(response, 200, { ok: true, value });
+    const result = await raw(input, `(${filter}) // empty`, ['-r']);
+    if (result.exitCode !== 0) return sendJson(response, 200, { ok: false, error: result.stderr.trim() });
+    return sendJson(response, 200, { ok: true, value: result.stdout.trim() });
   } catch (error) {
     return sendJson(response, 200, { ok: false, error: getErrorMessage(error) });
   }
