@@ -17,7 +17,13 @@
           <p>Import suites, run staged flows, inspect responses.</p>
         </div>
       </div>
-      <button id="themeToggle" class="btn ghost" type="button" title="Toggle theme"></button>
+      <div class="topbar-actions">
+        <button id="guideBtn" class="btn ghost guide-trigger" type="button" aria-haspopup="dialog" aria-controls="guideModal">
+          <span class="guide-label-full">Quick guide</span>
+          <span class="guide-label-compact" aria-hidden="true">Guide</span>
+        </button>
+        <button id="themeToggle" class="btn ghost" type="button" title="Toggle theme"></button>
+      </div>
     </div>
   </header>
 
@@ -157,6 +163,36 @@ GET /admin/courses/queue?tab=PENDING"></textarea>
       <div class="modal-actions">
         <button id="confirmCancel" class="btn ghost" type="button">Cancel</button>
         <button id="confirmOk" class="btn danger" type="button">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="guideModal" class="modal-backdrop" hidden>
+    <div class="modal guide-modal" role="dialog" aria-modal="true" aria-labelledby="guideTitle" aria-describedby="guideIntro">
+      <div class="guide-head">
+        <div>
+          <span class="guide-eyebrow">Start in a minute</span>
+          <h3 id="guideTitle">How to use API Test Studio</h3>
+        </div>
+        <button id="guideClose" class="guide-close" type="button" aria-label="Close guide">×</button>
+      </div>
+      <p id="guideIntro" class="guide-intro">Just follow these three steps.</p>
+      <ol class="guide-steps">
+        <li>
+          <span class="guide-step-number">1</span>
+          <div><strong>Connect</strong><span>Add your base URL and token.</span></div>
+        </li>
+        <li>
+          <span class="guide-step-number">2</span>
+          <div><strong>Add requests</strong><span>Paste routes or import a suite.</span></div>
+        </li>
+        <li>
+          <span class="guide-step-number">3</span>
+          <div><strong>Run</strong><span>Press “Run all” and review the results.</span></div>
+        </li>
+      </ol>
+      <div class="modal-actions guide-actions">
+        <button id="guideDone" class="btn primary" type="button">Got it</button>
       </div>
     </div>
   </div>

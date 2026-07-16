@@ -422,6 +422,37 @@
     });
   }
 
+  function bindGuide() {
+    const trigger = el('guideBtn');
+    const modal = el('guideModal');
+    const closeBtn = el('guideClose');
+    const doneBtn = el('guideDone');
+    if (!trigger || !modal || !closeBtn || !doneBtn) return;
+
+    const close = () => {
+      modal.hidden = true;
+      document.body.classList.remove('modal-open');
+      document.removeEventListener('keydown', onKeydown);
+      trigger.focus();
+    };
+
+    const onKeydown = (event) => {
+      if (event.key === 'Escape') close();
+    };
+
+    trigger.addEventListener('click', () => {
+      modal.hidden = false;
+      document.body.classList.add('modal-open');
+      document.addEventListener('keydown', onKeydown);
+      closeBtn.focus();
+    });
+    closeBtn.addEventListener('click', close);
+    doneBtn.addEventListener('click', close);
+    modal.addEventListener('click', (event) => {
+      if (event.target === modal) close();
+    });
+  }
+
   // ---- variable substitution -------------------------------------------------
 
   function subst(str) {
@@ -1588,6 +1619,7 @@
     bindRunBar();
     bindVarsPanel();
     bindBackToTop();
+    bindGuide();
     if (!state.rows.length) {
       const laneId = lastLaneId();
       state.rows.push(emptyRow({ method: 'GET', path: '/auth/me', role: 'admin', authVar: 'ADMIN_TOKEN', laneId }));
