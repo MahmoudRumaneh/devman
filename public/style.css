@@ -2418,6 +2418,8 @@ body.modal-open {
 
 .guide-modal {
   width: min(480px, 100%);
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
 }
 
 .guide-head {
@@ -2511,6 +2513,28 @@ body.modal-open {
 
 .guide-actions .btn {
   min-width: 96px;
+}
+
+.site-footer {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 8px 16px 2px;
+  color: var(--text-muted);
+  font-size: 12.5px;
+}
+
+.site-footer a {
+  color: var(--accent);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.site-footer a:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 @media (max-width: 520px) {
