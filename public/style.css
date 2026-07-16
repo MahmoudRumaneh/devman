@@ -2641,7 +2641,7 @@ body.modal-open {
   transform: translateY(calc(-50% - 1px));
 }
 
-.panel-actions .response-copy-btn {
+.panel-actions .response-copy-btn:not(.is-copied) {
   background: color-mix(in srgb, var(--surface) 72%, transparent);
 }
 

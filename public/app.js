@@ -405,13 +405,20 @@
     textarea.style.opacity = '0';
     textarea.style.pointerEvents = 'none';
     document.body.appendChild(textarea);
-    textarea.select();
-    const copied = document.execCommand('copy');
-    textarea.remove();
+    let copied = false;
+    try {
+      textarea.focus();
+      textarea.select();
+      textarea.setSelectionRange(0, textarea.value.length);
+      copied = document.execCommand('copy');
+    } finally {
+      textarea.remove();
+    }
     if (!copied) throw new Error('Clipboard access was denied');
   }
 
   function createCopyIconButton({ label, copiedMessage, getText, variant = '' }) {
+    let resetTimer;
     const button = document.createElement('button');
     button.className = `icon-btn copy-icon-btn ${variant}`.trim();
     button.type = 'button';
@@ -426,7 +433,8 @@
         button.title = copiedMessage;
         button.setAttribute('aria-label', copiedMessage);
         toast(copiedMessage);
-        window.setTimeout(() => {
+        window.clearTimeout(resetTimer);
+        resetTimer = window.setTimeout(() => {
           button.classList.remove('is-copied');
           button.innerHTML = ICONS.copy;
           button.title = label;
