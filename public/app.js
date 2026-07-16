@@ -4,6 +4,10 @@
   const STORAGE_KEY = 'apiTestStudio.v3';
   const THEME_KEY = 'apiTestStudio.theme';
   const VERBS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
+  const ICONS = {
+    copy: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M15 9V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h3"></path></svg>',
+    check: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"></path></svg>',
+  };
   const DEFAULT_TOKEN_PROFILES = [
     { key: 'admin', label: 'Tenant admin', varName: 'ADMIN_TOKEN', scope: 'TenantRole.TENANT_ADMIN', locked: true },
     { key: 'platform_admin', label: 'Platform admin', varName: 'PLATFORM_ADMIN_TOKEN', scope: 'UserRole.PLATFORM_ADMIN', locked: true },
@@ -381,6 +385,58 @@
     t.hidden = false;
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => { t.hidden = true; }, 4000);
+  }
+
+  async function writeClipboard(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+      try {
+        await navigator.clipboard.writeText(text);
+        return;
+      } catch (_) {
+        // Fall through for browsers that expose Clipboard API but deny access.
+      }
+    }
+
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.readOnly = true;
+    textarea.setAttribute('aria-hidden', 'true');
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    textarea.style.pointerEvents = 'none';
+    document.body.appendChild(textarea);
+    textarea.select();
+    const copied = document.execCommand('copy');
+    textarea.remove();
+    if (!copied) throw new Error('Clipboard access was denied');
+  }
+
+  function createCopyIconButton({ label, copiedMessage, getText, variant = '' }) {
+    const button = document.createElement('button');
+    button.className = `icon-btn copy-icon-btn ${variant}`.trim();
+    button.type = 'button';
+    button.title = label;
+    button.setAttribute('aria-label', label);
+    button.innerHTML = ICONS.copy;
+    button.addEventListener('click', async () => {
+      try {
+        await writeClipboard(getText());
+        button.classList.add('is-copied');
+        button.innerHTML = ICONS.check;
+        button.title = copiedMessage;
+        button.setAttribute('aria-label', copiedMessage);
+        toast(copiedMessage);
+        window.setTimeout(() => {
+          button.classList.remove('is-copied');
+          button.innerHTML = ICONS.copy;
+          button.title = label;
+          button.setAttribute('aria-label', label);
+        }, 1600);
+      } catch (_) {
+        toast('Copy failed');
+      }
+    });
+    return button;
   }
 
   function showConfirm({ title = 'Confirm action', message, okText = 'Delete' }) {
@@ -937,7 +993,16 @@
     pathInput.placeholder = '/admin/courses/queue';
     pathInput.value = row.path;
     pathInput.addEventListener('input', () => { row.path = pathInput.value; saveDebounced(); });
-    pathCell.appendChild(pathInput);
+    const pathInputWrap = document.createElement('div');
+    pathInputWrap.className = 'path-input-wrap';
+    pathInputWrap.appendChild(pathInput);
+    pathInputWrap.appendChild(createCopyIconButton({
+      label: 'Copy endpoint as cURL',
+      copiedMessage: 'cURL copied',
+      getText: () => buildCurlCommand(row),
+      variant: 'endpoint-copy-btn',
+    }));
+    pathCell.appendChild(pathInputWrap);
 
     const roleCell = document.createElement('div');
     roleCell.className = 'request-meta';
@@ -1127,19 +1192,12 @@
 
     const actions = document.createElement('div');
     actions.className = 'panel-actions';
-    const copyBtn = document.createElement('button');
-    copyBtn.className = 'btn ghost small';
-    copyBtn.type = 'button';
-    copyBtn.textContent = 'Copy';
-    copyBtn.addEventListener('click', async () => {
-      try {
-        await navigator.clipboard.writeText(formatBody(r.respBody));
-        toast('Response copied');
-      } catch (_) {
-        toast('Copy failed');
-      }
-    });
-    actions.appendChild(copyBtn);
+    actions.appendChild(createCopyIconButton({
+      label: 'Copy response',
+      copiedMessage: 'Response copied',
+      getText: () => formatBody(r.respBody),
+      variant: 'response-copy-btn',
+    }));
     head.appendChild(actions);
     panel.appendChild(head);
 
@@ -1225,27 +1283,72 @@
 
   // ---- running (grouped by lane, parallel within a lane, sequential capture) --
 
-  async function fireRequest(row) {
+  function buildRequestSnapshot(row) {
     const url = joinUrl(state.baseUrl, subst(row.path.trim()));
     const headers = {};
-    if (row.authVar && VARS[row.authVar]) headers['Authorization'] = `Bearer ${VARS[row.authVar]}`;
-    for (const [hk, hv] of Object.entries(row.headers || {})) headers[hk] = subst(String(hv));
+    if (row.authVar && VARS[row.authVar]) headers.Authorization = `Bearer ${VARS[row.authVar]}`;
+    for (const [header, value] of Object.entries(row.headers || {})) {
+      headers[header] = subst(String(value));
+    }
     if (!('x-tenant-id' in headers) && row.authVar && state.sendTenantHeader && VARS.TENANT_ID) {
       headers['x-tenant-id'] = VARS.TENANT_ID;
     }
-    const bodyRaw = subst(row.body.trim());
-    if (bodyRaw) headers['Content-Type'] = 'application/json';
+    const body = subst(row.body.trim());
+    if (body) headers['Content-Type'] = 'application/json';
+    return { url, headers, body };
+  }
+
+  function shellQuote(value) {
+    return `'${String(value).split("'").join("'\"'\"'")}'`;
+  }
+
+  function buildCurlCommand(row) {
+    const request = buildRequestSnapshot(row);
+    const lines = [
+      `curl --request ${shellQuote(row.method)}`,
+      `  --url ${shellQuote(request.url)}`,
+    ];
+    for (const [header, value] of Object.entries(request.headers)) {
+      lines.push(`  --header ${shellQuote(`${header}: ${value}`)}`);
+    }
+    if (request.body) lines.push(`  --data-raw ${shellQuote(request.body)}`);
+    return lines
+      .map((line, index) => (index < lines.length - 1 ? `${line} \\` : line))
+      .join('\n');
+  }
+
+  async function fireRequest(row) {
+    const request = buildRequestSnapshot(row);
 
     try {
       const resp = await fetch('/api/proxy', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ method: row.method, url, headers, body: bodyRaw || null }),
+        body: JSON.stringify({
+          method: row.method,
+          url: request.url,
+          headers: request.headers,
+          body: request.body || null,
+        }),
       });
       const out = await resp.json();
-      return { status: out.status, ms: out.ms, reqUrl: url, reqHeaders: headers, reqBody: bodyRaw, body: out.body };
+      return {
+        status: out.status,
+        ms: out.ms,
+        reqUrl: request.url,
+        reqHeaders: request.headers,
+        reqBody: request.body,
+        body: out.body,
+      };
     } catch (e) {
-      return { status: 0, ms: 0, reqUrl: url, reqHeaders: headers, reqBody: bodyRaw, body: JSON.stringify({ error: String(e) }) };
+      return {
+        status: 0,
+        ms: 0,
+        reqUrl: request.url,
+        reqHeaders: request.headers,
+        reqBody: request.body,
+        body: JSON.stringify({ error: String(e) }),
+      };
     }
   }
 

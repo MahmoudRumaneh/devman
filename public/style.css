@@ -2575,3 +2575,90 @@ body.modal-open {
     width: 100%;
   }
 }
+
+/* Compact copy actions for endpoints and responses. */
+.path-input-wrap {
+  position: relative;
+  min-width: 0;
+}
+
+.path-input-wrap .path-input {
+  padding-inline-end: 42px;
+}
+
+.icon-btn {
+  width: 30px;
+  height: 30px;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 30px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--surface) 78%, var(--surface-2));
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease, transform 0.15s ease;
+}
+
+.icon-btn svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+
+.icon-btn:hover {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 48%, var(--border));
+  background: color-mix(in srgb, var(--accent-soft) 64%, var(--surface));
+  transform: translateY(-1px);
+}
+
+.icon-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.icon-btn.is-copied {
+  color: var(--green);
+  border-color: color-mix(in srgb, var(--green) 45%, var(--border));
+  background: var(--green-bg);
+}
+
+.endpoint-copy-btn {
+  position: absolute;
+  inset-block-start: 50%;
+  inset-inline-end: 4px;
+  transform: translateY(-50%);
+}
+
+.endpoint-copy-btn:hover {
+  transform: translateY(calc(-50% - 1px));
+}
+
+.panel-actions .response-copy-btn {
+  background: color-mix(in srgb, var(--surface) 72%, transparent);
+}
+
+@media (max-width: 860px) {
+  .icon-btn {
+    width: 34px;
+    height: 34px;
+    flex-basis: 34px;
+  }
+
+  .path-input-wrap .path-input {
+    padding-inline-end: 45px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .icon-btn {
+    transition: none;
+  }
+}
