@@ -1,0 +1,20 @@
+{
+  "name": "api-test-studio",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A browser-based workspace for building and running staged API test flows.",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "vercel dev",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "jq-web": "0.6.2"
+  },
+  "devDependencies": {
+    "vercel": "^56.2.1"
+  }
+}

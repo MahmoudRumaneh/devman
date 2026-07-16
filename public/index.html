@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>API Test Studio</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext x='16' y='24' font-size='24' text-anchor='middle'%3E%E2%9A%A1%3C/text%3E%3C/svg%3E" />
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <span class="brand-mark">API</span>
+        <div>
+          <h1>API Test Studio</h1>
+          <p>Import suites, run staged flows, inspect responses.</p>
+        </div>
+      </div>
+      <button id="themeToggle" class="btn ghost" type="button" title="Toggle theme"></button>
+    </div>
+  </header>
+
+  <main class="container">
+    <aside class="setup-rail">
+
+    <section class="card setup-card">
+      <h2>Connection</h2>
+      <div class="grid-2">
+        <label class="field">
+          <span>Base URL</span>
+          <input id="baseUrl" type="text" placeholder="http://localhost:3000/api/v1" />
+        </label>
+        <label class="field">
+          <span>Tenant ID <em>(optional)</em></span>
+          <input id="tenantId" type="text" placeholder="x-tenant-id header value" />
+        </label>
+      </div>
+      <label class="checkbox-line">
+        <input id="sendTenantHeader" type="checkbox" checked />
+        <span>Send <code>x-tenant-id</code> header on authenticated requests</span>
+      </label>
+      <div class="notice" id="issuerNotice">
+        Use tokens from the same Keycloak realm as the backend. If every
+        authenticated request returns 401, compare the token issuer with
+        <code>KEYCLOAK_REALM</code>.
+      </div>
+    </section>
+
+    <section class="card setup-card">
+      <h2>Tokens</h2>
+      <p class="hint">Paste tokens for tenant roles and user roles. Existing suites can still use <code>ADMIN_TOKEN</code>; platform APIs can use <code>PLATFORM_ADMIN_TOKEN</code>.</p>
+      <div id="tokenList" class="token-list"></div>
+      <div class="btn-row compact">
+        <button id="addTokenBtn" class="btn primary small" type="button">+ Add token</button>
+        <button id="showTokens" class="btn ghost small" type="button">Show tokens</button>
+        <button id="clearTokens" class="btn ghost small" type="button">Clear pasted tokens</button>
+      </div>
+      <div id="tokenDiagnostics" class="token-diagnostics"></div>
+    </section>
+    </aside>
+
+    <section class="card workspace-card">
+      <div class="workspace-head">
+        <div>
+          <h2>Workspace</h2>
+          <p>Build the flow, run it, and inspect each request without leaving the page.</p>
+        </div>
+        <div class="workspace-actions">
+          <button id="importBtn" class="btn ghost" type="button">Import JSON / suite</button>
+          <button id="templateBtn" class="btn ghost" type="button">Download template</button>
+          <button id="exportBtn" class="btn ghost" type="button">Export JSON</button>
+        </div>
+      </div>
+      <p class="hint">Paste routes, one per line: <code>METHOD /path</code> (method optional, defaults to GET).
+        Or import a full <code>engine.sh</code> suite JSON (<code>suites/*.json</code>) below to get its
+        staged/parallel execution, variable capture between steps, and known-bug flags for free.
+        Drag the <code>⠿</code> handle on a row to move it into a different group, or drag a group's
+        header to reorder groups — rows in the same group run in parallel; groups run top to bottom.</p>
+      <textarea id="pasteBox" rows="4" placeholder="GET /admin/courses/queue
+POST /admin/courses/{id}/approve
+GET /admin/courses/queue?tab=PENDING"></textarea>
+      <div id="dropZone" class="drop-zone" tabindex="0">
+        <strong>Drop a suite JSON here</strong>
+        <span>or use import below. Engine suites, Studio exports, and the template all work.</span>
+      </div>
+
+      <div class="btn-row">
+        <button id="parseBtn" class="btn primary" type="button">Add parsed routes</button>
+        <button id="addRowBtn" class="btn ghost" type="button">+ Add empty row</button>
+        <button id="exampleBtn" class="btn ghost" type="button">Load example</button>
+        <span class="spacer"></span>
+        <input id="importFile" type="file" accept="application/json" hidden />
+      </div>
+
+      <div class="endpoint-search">
+        <label class="search-field">
+          <span>Search endpoints</span>
+          <input id="endpointSearch" type="search" placeholder="Search method, path, notes, captures, body..." autocomplete="off" />
+        </label>
+        <button id="clearSearchBtn" class="btn ghost small" type="button">Clear</button>
+        <span id="searchCount" class="search-count">0 endpoints</span>
+      </div>
+
+      <div class="vars-panel">
+        <button id="varsToggle" class="result-toggle" type="button">Show variables</button>
+        <div id="varsBox" class="vars-box" hidden>(none yet — run something)</div>
+      </div>
+
+      <div id="rowsHeader" class="row-grid row-head">
+        <div></div>
+        <div>Method</div>
+        <div>Path</div>
+        <div>Role</div>
+        <div>Body (JSON, optional)</div>
+        <div>Expect</div>
+        <div>Result</div>
+        <div></div>
+      </div>
+      <div id="rowsList"></div>
+
+      <div class="btn-row">
+        <button id="addRowBtn2" class="btn ghost" type="button">+ Add empty row</button>
+        <button id="addStageBtn" class="btn ghost" type="button">+ Add group</button>
+      </div>
+    </section>
+
+    <div id="runBar" class="run-bar">
+      <div class="run-bar-inner">
+        <label class="field inline">
+          <span>Report name</span>
+          <input id="suiteName" type="text" value="api-test-studio" />
+        </label>
+        <span class="summary">
+          <span id="sumTotal">0</span> total
+          &middot; <span class="pass">✓ <span id="sumPass">0</span></span>
+          &middot; <span class="bug">⚠ <span id="sumBug">0</span></span>
+          &middot; <span class="fail">✕ <span id="sumFail">0</span></span>
+        </span>
+        <span class="spacer"></span>
+        <button id="saveReportBtn" class="btn ghost" type="button">Save report (.md)</button>
+        <button id="clearAllBtn" class="btn danger-ghost" type="button">Clear all rows</button>
+        <button id="runAllBtn" class="btn primary" type="button">Run all</button>
+      </div>
+    </div>
+
+  </main>
+
+  <div id="toast" class="toast" hidden></div>
+  <button id="backToTopBtn" class="back-to-top" type="button" hidden>↑</button>
+  <div id="confirmModal" class="modal-backdrop" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
+      <div class="modal-head">
+        <h3 id="confirmTitle">Confirm action</h3>
+      </div>
+      <p id="confirmMessage" class="modal-message"></p>
+      <div class="modal-actions">
+        <button id="confirmCancel" class="btn ghost" type="button">Cancel</button>
+        <button id="confirmOk" class="btn danger" type="button">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
