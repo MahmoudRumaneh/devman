@@ -20,6 +20,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { fetchWithNetworkRetry } = require('./lib/fetch-retry');
+const { importOpenApiFromUrl } = require('./lib/swagger-import');
 
 const WEB_DIR = __dirname;
 const PUBLIC_DIR = path.join(WEB_DIR, 'public');
@@ -147,11 +148,24 @@ async function handleSaveReport(req, res) {
   return sendJson(res, 200, { path: outPath });
 }
 
+async function handleSwaggerImport(req, res) {
+  let payload;
+  try {
+    payload = await readJsonBody(req);
+    const url = typeof payload.url === 'string' ? payload.url : '';
+    const imported = await importOpenApiFromUrl(url);
+    return sendJson(res, 200, imported);
+  } catch (error) {
+    return sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
+  }
+}
+
 const server = http.createServer(async (req, res) => {
   try {
     if (req.method === 'POST' && req.url === '/api/proxy') return await handleProxy(req, res);
     if (req.method === 'POST' && req.url === '/api/jq') return handleJq(req, res);
     if (req.method === 'POST' && req.url === '/api/save-report') return await handleSaveReport(req, res);
+    if (req.method === 'POST' && req.url === '/api/swagger-import') return await handleSwaggerImport(req, res);
     if (req.method === 'GET') return serveStatic(req, res);
     return sendJson(res, 404, { error: 'not found' });
   } catch (e) {

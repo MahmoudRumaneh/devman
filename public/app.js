@@ -6,21 +6,28 @@
   const LEGACY_STORAGE_KEY = 'apiTestStudio.v3';
   const LEGACY_THEME_KEY = 'apiTestStudio.theme';
   const DEFAULT_PROJECT_NAME = 'devman-api';
-  const VERBS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
+  const VERBS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'];
   const SAFE_RETRY_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
   const RETRYABLE_PROXY_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
   const PROXY_MAX_ATTEMPTS = 3;
   const PROXY_RETRY_DELAY_MS = 250;
   const FAILURE_ALERT_DURATION_MS = 9000;
   const FAILURE_HIGHLIGHT_DURATION_MS = 2600;
-  const RUN_MODE = Object.freeze({ ALL: 'all', SINGLE: 'single' });
+  const RUN_MODE = Object.freeze({ ALL: 'all', GROUPS: 'groups', SINGLE: 'single' });
+  const SWAGGER_IMPORT_MODE = Object.freeze({ REPLACE: 'replace', APPEND: 'append' });
+  const JSON_IMPORT_ACTION = Object.freeze({ REPLACE: 'replace', APPEND: 'append' });
   const ROW_PANEL = Object.freeze({ NONE: '', BODY: 'body', HEADERS: 'headers', RESPONSE: 'response' });
   const ROW_PANEL_VALUES = new Set(Object.values(ROW_PANEL));
   const HEADER_NAME_PATTERN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
   const DEFAULT_CUSTOM_HEADER_NAME = 'X-Custom-Header';
+  const GROUP_NAME_MAX_LENGTH = 80;
   const ICONS = {
     copy: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M15 9V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h3"></path></svg>',
     check: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"></path></svg>',
+    edit: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 16-.8 4.8L8 20l10.7-10.7a2.1 2.1 0 0 0-3-3Z"></path><path d="m14.5 7.5 3 3"></path></svg>',
+    expand: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M21 16v5h-5"></path></svg>',
+    key: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="15" r="4"></circle><path d="m11 12 9-9M16 7l3 3M14 9l2 2"></path></svg>',
+    play: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 5 11 7-11 7Z"></path></svg>',
     response: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"></path><circle cx="12" cy="12" r="2.5"></circle></svg>',
   };
   const DEFAULT_TOKEN_PROFILES = [
@@ -83,6 +90,7 @@
     tokenProfiles: DEFAULT_TOKEN_PROFILES.map((profile) => ({ ...profile })),
     rows: [],
     laneOrder: [], // array of lane ids, in the order they execute — this replaces numeric "stage"
+    laneMeta: {}, // lane id -> stable display name and collapsed state
     endpointSearch: '',
   };
 
@@ -93,11 +101,23 @@
   let VARS = {};
   let tokensVisible = false;
   let runInProgress = false;
+  let activeRunLaneId = null;
+  const selectedLaneIds = new Set();
+  const searchCollapsedLaneIds = new Set();
+  let previousEndpointSearch = '';
 
   let nextId = 1;
   const newRowId = () => `r${nextId++}`;
   let nextLaneNum = 1;
-  const newLaneId = () => `lane-${nextLaneNum++}`;
+  const newLaneId = (over = {}) => {
+    let id;
+    do { id = `lane-${nextLaneNum++}`; } while (state.laneOrder.includes(id) || state.laneMeta[id]);
+    state.laneMeta[id] = {
+      name: String(over.name || '').trim(),
+      collapsed: over.collapsed ?? true,
+    };
+    return id;
+  };
 
   function emptyRow(over = {}) {
     const row = {
@@ -119,6 +139,7 @@
       activePanel: ROW_PANEL.NONE,
       ...over,
     };
+    row.expect = normalizeStatusExpectation(row.expect);
     if (!ROW_PANEL_VALUES.has(row.activePanel)) row.activePanel = ROW_PANEL.NONE;
     if (row.expanded && row.activePanel === ROW_PANEL.NONE) row.activePanel = ROW_PANEL.BODY;
     if (row.activePanel === ROW_PANEL.RESPONSE && !row.result) row.activePanel = ROW_PANEL.NONE;
@@ -129,6 +150,28 @@
   function lastLaneId() {
     if (!state.laneOrder.length) state.laneOrder.push(newLaneId());
     return state.laneOrder[state.laneOrder.length - 1];
+  }
+
+  function normalizeLaneMeta(rawMeta, laneOrder) {
+    const source = isRecord(rawMeta) ? rawMeta : {};
+    return Object.fromEntries(laneOrder.map((laneId) => {
+      const meta = isRecord(source[laneId]) ? source[laneId] : {};
+      return [laneId, {
+        name: typeof meta.name === 'string' ? meta.name.trim() : '',
+        collapsed: typeof meta.collapsed === 'boolean' ? meta.collapsed : true,
+      }];
+    }));
+  }
+
+  function laneMetaFor(laneId) {
+    if (!isRecord(state.laneMeta[laneId])) {
+      state.laneMeta[laneId] = { name: '', collapsed: true };
+    }
+    return state.laneMeta[laneId];
+  }
+
+  function laneDisplayName(laneId, index = state.laneOrder.indexOf(laneId)) {
+    return laneMetaFor(laneId).name || `Group ${Math.max(index, 0) + 1}`;
   }
 
   // Empty lanes are a valid, persistent state (e.g. "+ Add group" creates one
@@ -150,6 +193,7 @@
       tokenProfiles: state.tokenProfiles,
       suiteStaticVars,
       laneOrder: state.laneOrder,
+      laneMeta: state.laneMeta,
       endpointSearch: state.endpointSearch,
       rows: state.rows.map(({ result, ...rest }) => rest),
     };
@@ -312,6 +356,54 @@
     }
   }
 
+  function syncTokenCardActions() {
+    document.querySelectorAll('.token-apply-all-btn').forEach((button) => {
+      const hasToken = Boolean(state.tokens[button.dataset.profileKey]?.trim());
+      button.hidden = !hasToken;
+      button.disabled = runInProgress || !state.rows.length;
+      const actions = button.closest('.token-card-actions');
+      if (actions) actions.hidden = [...actions.children].every((child) => child.hidden);
+    });
+  }
+
+  async function applyTokenProfileToAllEndpoints(profile) {
+    if (runInProgress) {
+      toast('Wait for the current run to finish');
+      return;
+    }
+    if (!state.tokens[profile.key]?.trim()) {
+      toast(`Paste a value for ${profile.varName} first`);
+      return;
+    }
+    if (!state.rows.length) {
+      toast('Add at least one endpoint first');
+      return;
+    }
+
+    const changedCount = state.rows.filter((row) =>
+      row.role !== profile.key || row.authVar !== profile.varName).length;
+    if (!changedCount) {
+      toast(`Every endpoint already uses ${profile.label}`);
+      return;
+    }
+    const confirmed = await showConfirm({
+      title: `Use ${profile.label} for all endpoints?`,
+      message: `This will assign ${profile.varName} to all ${state.rows.length} endpoint${state.rows.length === 1 ? '' : 's'} and replace their current authentication profile.`,
+      okText: 'Apply to all',
+      danger: false,
+    });
+    if (!confirmed) return;
+
+    state.rows.forEach((row) => {
+      row.role = profile.key;
+      row.authVar = profile.varName;
+    });
+    seedVars(false);
+    renderRows();
+    save();
+    toast(`${profile.label} applied to all ${state.rows.length} endpoint${state.rows.length === 1 ? '' : 's'}`);
+  }
+
   function renderTokenList() {
     const list = el('tokenList');
     if (!list) return;
@@ -372,11 +464,24 @@
         state.tokens[profile.key] = tokenInput.value;
         seedVars(false);
         renderTokenDiagnostics();
+        syncTokenCardActions();
         saveDebounced();
       });
 
       card.appendChild(meta);
       card.appendChild(tokenInput);
+
+      const actions = document.createElement('div');
+      actions.className = 'token-card-actions';
+      const applyAllButton = document.createElement('button');
+      applyAllButton.className = 'btn ghost small token-apply-all-btn';
+      applyAllButton.type = 'button';
+      applyAllButton.dataset.profileKey = profile.key;
+      applyAllButton.innerHTML = `${ICONS.key}<span>Use for all endpoints</span>`;
+      applyAllButton.title = `Use ${profile.label} for every endpoint`;
+      applyAllButton.setAttribute('aria-label', `Use ${profile.label} token for every endpoint`);
+      applyAllButton.addEventListener('click', () => applyTokenProfileToAllEndpoints(profile));
+      actions.appendChild(applyAllButton);
 
       if (!profile.locked) {
         const removeBtn = document.createElement('button');
@@ -397,11 +502,14 @@
           renderRows();
           save();
         });
-        card.appendChild(removeBtn);
+        actions.appendChild(removeBtn);
       }
+
+      card.appendChild(actions);
 
       list.appendChild(card);
     }
+    syncTokenCardActions();
   }
 
   function decodeJwtPayload(token) {
@@ -428,7 +536,8 @@
       state.tokens = { ...state.tokens, ...(parsed.tokens || {}) };
       state.tokenProfiles = normalizeTokenProfiles(parsed.tokenProfiles);
       suiteStaticVars = parsed.suiteStaticVars || {};
-      state.laneOrder = parsed.laneOrder || [];
+      state.laneOrder = Array.isArray(parsed.laneOrder) ? parsed.laneOrder : [];
+      state.laneMeta = normalizeLaneMeta(parsed.laneMeta, state.laneOrder);
       state.endpointSearch = parsed.endpointSearch || '';
       state.rows = (parsed.rows || []).map((r) => emptyRow(r));
       if (!state.laneOrder.length && state.rows.length) {
@@ -436,6 +545,7 @@
         state.laneOrder = [id];
         state.rows.forEach((r) => { r.laneId = id; });
       }
+      state.laneMeta = normalizeLaneMeta(state.laneMeta, state.laneOrder);
       if (!localStorage.getItem(STORAGE_KEY)) save();
     } catch (e) {
       console.warn('Failed to load saved state', e);
@@ -450,6 +560,274 @@
     };
   };
   const saveDebounced = debounce(save, 300);
+
+  // ---- shared select control -----------------------------------------------
+
+  let nextSharedSelectId = 1;
+  let openSharedSelectState = null;
+
+  function selectedNativeOption(select) {
+    return select.options[select.selectedIndex] || select.options[0] || null;
+  }
+
+  function refreshSharedSelect(select) {
+    const wrapper = select.closest('.shared-select');
+    if (!wrapper) return;
+    const trigger = wrapper.querySelector('.shared-select-trigger');
+    const valueLabel = wrapper.querySelector('.shared-select-value');
+    const selectedOption = selectedNativeOption(select);
+    if (!trigger || !valueLabel) return;
+
+    valueLabel.textContent = selectedOption?.textContent || 'Choose an option';
+    trigger.disabled = select.disabled;
+    trigger.dataset.value = selectedOption?.value || '';
+    trigger.title = selectedOption?.textContent || 'Choose an option';
+    if (openSharedSelectState?.select === select) closeSharedSelect();
+  }
+
+  function positionSharedSelectMenu(state) {
+    const { trigger, menu } = state;
+    if (!trigger.isConnected || !menu.isConnected) return;
+    const rect = trigger.getBoundingClientRect();
+    const viewportPadding = 8;
+    const gap = 6;
+    const width = Math.min(
+      Math.max(rect.width, 220),
+      Math.max(160, window.innerWidth - (viewportPadding * 2)),
+    );
+    const isRtl = getComputedStyle(trigger).direction === 'rtl';
+    const preferredLeft = isRtl ? rect.right - width : rect.left;
+    const left = Math.min(
+      Math.max(preferredLeft, viewportPadding),
+      window.innerWidth - width - viewportPadding,
+    );
+    const spaceBelow = window.innerHeight - rect.bottom - gap - viewportPadding;
+    const spaceAbove = rect.top - gap - viewportPadding;
+    const estimatedHeight = Math.min(menu.scrollHeight, 320);
+    const openAbove = spaceBelow < Math.min(estimatedHeight, 180) && spaceAbove > spaceBelow;
+
+    menu.style.width = `${width}px`;
+    menu.style.left = `${left}px`;
+    menu.style.right = 'auto';
+    menu.style.top = openAbove ? 'auto' : `${rect.bottom + gap}px`;
+    menu.style.bottom = openAbove ? `${window.innerHeight - rect.top + gap}px` : 'auto';
+    menu.style.maxHeight = `${Math.max(96, Math.min(320, openAbove ? spaceAbove : spaceBelow))}px`;
+    menu.style.visibility = 'visible';
+  }
+
+  function setSharedSelectActiveIndex(state, nextIndex) {
+    const enabledIndices = state.options
+      .map((option, index) => ({ option, index }))
+      .filter(({ option }) => !option.disabled)
+      .map(({ index }) => index);
+    if (!enabledIndices.length) return;
+
+    const requestedIndex = enabledIndices.includes(nextIndex) ? nextIndex : enabledIndices[0];
+    state.activeIndex = requestedIndex;
+    state.optionElements.forEach((optionElement, index) => {
+      const isActive = index === requestedIndex;
+      optionElement.classList.toggle('is-active', isActive);
+      if (isActive) {
+        state.trigger.setAttribute('aria-activedescendant', optionElement.id);
+        optionElement.scrollIntoView({ block: 'nearest' });
+      }
+    });
+  }
+
+  function moveSharedSelectActiveIndex(state, direction) {
+    const enabledIndices = state.options
+      .map((option, index) => ({ option, index }))
+      .filter(({ option }) => !option.disabled)
+      .map(({ index }) => index);
+    if (!enabledIndices.length) return;
+    const currentPosition = enabledIndices.indexOf(state.activeIndex);
+    const nextPosition = currentPosition < 0
+      ? 0
+      : (currentPosition + direction + enabledIndices.length) % enabledIndices.length;
+    setSharedSelectActiveIndex(state, enabledIndices[nextPosition]);
+  }
+
+  function chooseSharedSelectOption(state, optionIndex) {
+    const option = state.options[optionIndex];
+    if (!option || option.disabled) return;
+    state.select.selectedIndex = optionIndex;
+    state.select.dispatchEvent(new Event('change', { bubbles: true }));
+    refreshSharedSelect(state.select);
+    closeSharedSelect({ restoreFocus: true });
+  }
+
+  function closeSharedSelect({ restoreFocus = false } = {}) {
+    const state = openSharedSelectState;
+    if (!state) return;
+    openSharedSelectState = null;
+    state.menu.remove();
+    state.trigger.setAttribute('aria-expanded', 'false');
+    state.trigger.removeAttribute('aria-activedescendant');
+    state.wrapper.classList.remove('is-open');
+    document.removeEventListener('pointerdown', state.onOutsidePointer, true);
+    document.removeEventListener('scroll', state.onViewportChange, true);
+    window.removeEventListener('resize', state.onViewportChange);
+    if (restoreFocus && state.trigger.isConnected) state.trigger.focus({ preventScroll: true });
+  }
+
+  function openSharedSelect(select, wrapper, trigger) {
+    if (select.disabled) return;
+    if (openSharedSelectState?.select === select) {
+      closeSharedSelect({ restoreFocus: true });
+      return;
+    }
+    closeSharedSelect();
+
+    const options = [...select.options];
+    const menu = document.createElement('div');
+    menu.className = 'shared-select-menu';
+    menu.id = trigger.getAttribute('aria-controls');
+    menu.setAttribute('role', 'listbox');
+    menu.setAttribute('aria-label', trigger.getAttribute('aria-label') || 'Options');
+    menu.style.visibility = 'hidden';
+
+    const optionElements = options.map((option, index) => {
+      const optionElement = document.createElement('div');
+      optionElement.className = 'shared-select-option';
+      optionElement.id = `${menu.id}-option-${index}`;
+      optionElement.setAttribute('role', 'option');
+      optionElement.setAttribute('aria-selected', String(index === select.selectedIndex));
+      optionElement.setAttribute('aria-disabled', String(option.disabled));
+      optionElement.classList.toggle('is-selected', index === select.selectedIndex);
+      optionElement.classList.toggle('is-disabled', option.disabled);
+
+      const copy = document.createElement('span');
+      copy.className = 'shared-select-option-copy';
+      const label = document.createElement('strong');
+      label.textContent = option.textContent;
+      copy.appendChild(label);
+      if (option.dataset.description) {
+        const description = document.createElement('small');
+        description.textContent = option.dataset.description;
+        copy.appendChild(description);
+      }
+      const check = document.createElement('span');
+      check.className = 'shared-select-check';
+      check.setAttribute('aria-hidden', 'true');
+      check.textContent = '✓';
+      optionElement.appendChild(copy);
+      optionElement.appendChild(check);
+      optionElement.addEventListener('pointerenter', () => {
+        if (!option.disabled && openSharedSelectState) {
+          setSharedSelectActiveIndex(openSharedSelectState, index);
+        }
+      });
+      optionElement.addEventListener('pointerdown', (event) => event.preventDefault());
+      optionElement.addEventListener('click', () => {
+        if (openSharedSelectState) chooseSharedSelectOption(openSharedSelectState, index);
+      });
+      menu.appendChild(optionElement);
+      return optionElement;
+    });
+
+    const state = {
+      select,
+      wrapper,
+      trigger,
+      menu,
+      options,
+      optionElements,
+      activeIndex: select.selectedIndex >= 0 ? select.selectedIndex : 0,
+      onOutsidePointer: null,
+      onViewportChange: null,
+    };
+    state.onOutsidePointer = (event) => {
+      if (!wrapper.contains(event.target) && !menu.contains(event.target)) closeSharedSelect();
+    };
+    state.onViewportChange = (event) => {
+      if (event.type === 'scroll' && menu.contains(event.target)) return;
+      closeSharedSelect();
+    };
+
+    openSharedSelectState = state;
+    document.body.appendChild(menu);
+    wrapper.classList.add('is-open');
+    trigger.setAttribute('aria-expanded', 'true');
+    positionSharedSelectMenu(state);
+    setSharedSelectActiveIndex(state, state.activeIndex);
+    document.addEventListener('pointerdown', state.onOutsidePointer, true);
+    document.addEventListener('scroll', state.onViewportChange, true);
+    window.addEventListener('resize', state.onViewportChange);
+  }
+
+  function handleSharedSelectKeydown(event, select, wrapper, trigger) {
+    const state = openSharedSelectState?.select === select ? openSharedSelectState : null;
+    if (!state) {
+      if (['ArrowDown', 'ArrowUp', 'Enter', ' '].includes(event.key)) {
+        event.preventDefault();
+        openSharedSelect(select, wrapper, trigger);
+      }
+      return;
+    }
+
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      closeSharedSelect({ restoreFocus: true });
+    } else if (event.key === 'Tab') {
+      closeSharedSelect();
+    } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      moveSharedSelectActiveIndex(state, event.key === 'ArrowDown' ? 1 : -1);
+    } else if (event.key === 'Home' || event.key === 'End') {
+      event.preventDefault();
+      const index = event.key === 'Home' ? 0 : state.options.length - 1;
+      setSharedSelectActiveIndex(state, index);
+    } else if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      chooseSharedSelectOption(state, state.activeIndex);
+    }
+  }
+
+  function enhanceSelect(select, { variant = 'default', label = 'Choose an option' } = {}) {
+    const existingWrapper = select.closest('.shared-select');
+    if (existingWrapper) {
+      existingWrapper.dataset.variant = variant;
+      const existingTrigger = existingWrapper.querySelector('.shared-select-trigger');
+      if (existingTrigger) existingTrigger.setAttribute('aria-label', label);
+      refreshSharedSelect(select);
+      return existingWrapper;
+    }
+
+    const controlId = select.id || `shared-select-${nextSharedSelectId++}`;
+    const wrapper = document.createElement('div');
+    wrapper.className = 'shared-select';
+    wrapper.dataset.variant = variant;
+    const trigger = document.createElement('button');
+    trigger.className = 'shared-select-trigger';
+    trigger.type = 'button';
+    trigger.id = `${controlId}-trigger`;
+    trigger.setAttribute('aria-label', label);
+    trigger.setAttribute('aria-haspopup', 'listbox');
+    trigger.setAttribute('aria-expanded', 'false');
+    trigger.setAttribute('aria-controls', `${controlId}-menu`);
+
+    const valueLabel = document.createElement('span');
+    valueLabel.className = 'shared-select-value';
+    const chevron = document.createElement('span');
+    chevron.className = 'shared-select-chevron';
+    chevron.setAttribute('aria-hidden', 'true');
+    chevron.innerHTML = '<svg viewBox="0 0 20 20"><path d="m5.5 7.5 4.5 4.5 4.5-4.5"></path></svg>';
+    trigger.appendChild(valueLabel);
+    trigger.appendChild(chevron);
+
+    if (select.parentNode) select.parentNode.insertBefore(wrapper, select);
+    wrapper.appendChild(select);
+    wrapper.appendChild(trigger);
+    select.classList.add('shared-select-native');
+    select.tabIndex = -1;
+    select.setAttribute('aria-hidden', 'true');
+    select.addEventListener('change', () => refreshSharedSelect(select));
+    trigger.addEventListener('click', () => openSharedSelect(select, wrapper, trigger));
+    trigger.addEventListener('keydown', (event) => handleSharedSelectKeydown(event, select, wrapper, trigger));
+    refreshSharedSelect(select);
+    return wrapper;
+  }
 
   // ---- theme ------------------------------------------------------------
 
@@ -670,7 +1048,95 @@
     return button;
   }
 
-  function showConfirm({ title = 'Confirm action', message, okText = 'Delete' }) {
+  function openEndpointPathEditor(row, returnFocus) {
+    const modal = el('endpointPathModal');
+    const input = el('endpointPathInput');
+    const method = el('endpointPathMethod');
+    const count = el('endpointPathCount');
+    const preview = el('endpointPathPreview');
+    const cancelButton = el('endpointPathCancel');
+    const copyButton = el('endpointPathCopy');
+    const saveButton = el('endpointPathSave');
+    let copyResetTimer;
+
+    closeSharedSelect();
+    input.value = String(row.path || '');
+    method.textContent = row.method;
+    method.dataset.method = row.method;
+    copyButton.innerHTML = `${ICONS.copy}<span>Copy path</span>`;
+    copyButton.classList.remove('is-copied');
+
+    const syncPreview = () => {
+      const value = input.value;
+      count.textContent = `${value.length} character${value.length === 1 ? '' : 's'}`;
+      preview.textContent = joinUrl(state.baseUrl, value.trim());
+    };
+    const focusPathAction = () => {
+      const rowElement = [...document.querySelectorAll('.request-card')]
+        .find((element) => element.dataset.rowId === row.id);
+      rowElement?.querySelector('.endpoint-expand-btn')?.focus({ preventScroll: true });
+    };
+    const close = ({ saveChanges = false } = {}) => {
+      window.clearTimeout(copyResetTimer);
+      modal.hidden = true;
+      document.body.classList.remove('modal-open');
+      document.removeEventListener('keydown', onKeydown);
+      input.oninput = null;
+      cancelButton.onclick = null;
+      copyButton.onclick = null;
+      saveButton.onclick = null;
+      modal.onclick = null;
+      if (saveChanges) {
+        row.path = input.value.trim();
+        save();
+        renderRows();
+        window.requestAnimationFrame(focusPathAction);
+      } else if (returnFocus?.isConnected) {
+        returnFocus.focus({ preventScroll: true });
+      }
+    };
+    const onKeydown = (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        close();
+      } else if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+        event.preventDefault();
+        close({ saveChanges: true });
+      }
+    };
+
+    input.oninput = syncPreview;
+    cancelButton.onclick = () => close();
+    saveButton.onclick = () => close({ saveChanges: true });
+    copyButton.onclick = async () => {
+      try {
+        await writeClipboard(input.value);
+        copyButton.classList.add('is-copied');
+        copyButton.innerHTML = `${ICONS.check}<span>Copied</span>`;
+        toast('Endpoint path copied');
+        window.clearTimeout(copyResetTimer);
+        copyResetTimer = window.setTimeout(() => {
+          copyButton.classList.remove('is-copied');
+          copyButton.innerHTML = `${ICONS.copy}<span>Copy path</span>`;
+        }, 1600);
+      } catch (_) {
+        toast('Copy failed');
+      }
+    };
+    modal.onclick = (event) => {
+      if (event.target === modal) close();
+    };
+    document.addEventListener('keydown', onKeydown);
+    syncPreview();
+    modal.hidden = false;
+    document.body.classList.add('modal-open');
+    window.requestAnimationFrame(() => {
+      input.focus();
+      input.setSelectionRange(input.value.length, input.value.length);
+    });
+  }
+
+  function showConfirm({ title = 'Confirm action', message, okText = 'Delete', danger = true }) {
     return new Promise((resolve) => {
       const modal = el('confirmModal');
       const titleEl = el('confirmTitle');
@@ -681,6 +1147,7 @@
       titleEl.textContent = title;
       messageEl.textContent = message;
       okBtn.textContent = okText;
+      okBtn.className = `btn ${danger ? 'danger' : 'primary'}`;
       modal.hidden = false;
 
       const close = (value) => {
@@ -706,6 +1173,47 @@
       modal.addEventListener('click', onBackdrop);
       document.addEventListener('keydown', onKeydown);
       cancelBtn.focus();
+    });
+  }
+
+  function showJsonImportChoice({ existingCount, importedCount }) {
+    return new Promise((resolve) => {
+      const modal = el('jsonImportChoiceModal');
+      const message = el('jsonImportChoiceMessage');
+      const cancelButton = el('jsonImportChoiceCancel');
+      const replaceButton = el('jsonImportChoiceReplace');
+      const appendButton = el('jsonImportChoiceAppend');
+
+      message.textContent = `Your workspace already has ${existingCount} endpoint${existingCount === 1 ? '' : 's'}. This file contains ${importedCount} endpoint${importedCount === 1 ? '' : 's'}. Choose how to import them.`;
+      modal.hidden = false;
+      document.body.classList.add('modal-open');
+
+      const close = (action = null) => {
+        modal.hidden = true;
+        document.body.classList.remove('modal-open');
+        cancelButton.removeEventListener('click', onCancel);
+        replaceButton.removeEventListener('click', onReplace);
+        appendButton.removeEventListener('click', onAppend);
+        modal.removeEventListener('click', onBackdrop);
+        document.removeEventListener('keydown', onKeydown);
+        resolve(action);
+      };
+      const onCancel = () => close();
+      const onReplace = () => close(JSON_IMPORT_ACTION.REPLACE);
+      const onAppend = () => close(JSON_IMPORT_ACTION.APPEND);
+      const onBackdrop = (event) => {
+        if (event.target === modal) close();
+      };
+      const onKeydown = (event) => {
+        if (event.key === 'Escape') close();
+      };
+
+      cancelButton.addEventListener('click', onCancel);
+      replaceButton.addEventListener('click', onReplace);
+      appendButton.addEventListener('click', onAppend);
+      modal.addEventListener('click', onBackdrop);
+      document.addEventListener('keydown', onKeydown);
+      appendButton.focus();
     });
   }
 
@@ -835,15 +1343,34 @@
     return b + p;
   }
 
+  function statusExpectationValues(expect) {
+    const expectedValues = Array.isArray(expect) ? expect : String(expect ?? '').split(',');
+    return expectedValues.map((value) => String(value).trim()).filter(Boolean);
+  }
+
+  function normalizeStatusExpectation(expect) {
+    const values = statusExpectationValues(expect);
+    if (!values.length) return '';
+    const allAreGeneralSuccessCodes = values.every((value) =>
+      /^2xx$/i.test(value) || /^2\d{2}$/.test(value));
+    return allAreGeneralSuccessCodes ? '2xx' : values.join(',');
+  }
+
   function statusMatches(status, expect) {
-    const e = (expect || '').trim();
-    if (!e) return status >= 200 && status < 300;
-    if (e.includes(',')) {
-      return e.split(',').map((x) => x.trim()).includes(String(status));
-    }
-    if (/^\d+$/.test(e)) return status === Number(e);
-    if (/^\dxx$/i.test(e)) return Math.floor(status / 100) === Number(e[0]);
-    return String(status) === e;
+    const normalizedValues = statusExpectationValues(normalizeStatusExpectation(expect));
+    if (!normalizedValues.length) return status >= 200 && status < 300;
+
+    return normalizedValues.some((expectedValue) => {
+      const strictStatus = expectedValue.match(/^=(\d{3})$/);
+      if (strictStatus) return status === Number(strictStatus[1]);
+      if (/^\d{3}$/.test(expectedValue)) return status === Number(expectedValue);
+      if (/^[1-5]xx$/i.test(expectedValue)) {
+        return Math.floor(status / 100) === Number(expectedValue[0]);
+      }
+      const range = expectedValue.match(/^(\d{3})\s*(?:-|\.\.)\s*(\d{3})$/);
+      if (range) return status >= Number(range[1]) && status <= Number(range[2]);
+      return String(status) === expectedValue;
+    });
   }
 
   function escapeHtml(s) {
@@ -880,6 +1407,7 @@
       return {
         rows: state.rows,
         laneOrder: state.laneOrder,
+        laneMeta: state.laneMeta,
         importedTokenCount,
         tokensOnly: isRecord(parsed.tokens),
       };
@@ -890,7 +1418,7 @@
       row.body = formatImportedBody(row.body);
       return row;
     });
-    let laneOrder = parsed.laneOrder;
+    let laneOrder = Array.isArray(parsed.laneOrder) ? parsed.laneOrder : null;
     if (!laneOrder || !laneOrder.length) {
       const id = newLaneId();
       laneOrder = [id];
@@ -898,7 +1426,8 @@
     } else {
       rows.forEach((r) => { if (!r.laneId) r.laneId = laneOrder[0]; });
     }
-    return { rows, laneOrder, importedTokenCount, tokensOnly: false };
+    const laneMeta = normalizeLaneMeta(parsed.laneMeta ?? parsed.lane_meta, laneOrder);
+    return { rows, laneOrder, laneMeta, importedTokenCount, tokensOnly: false };
   }
 
   function importEngineSuite(parsed) {
@@ -915,10 +1444,13 @@
     }
 
     const distinctStages = [...new Set(rawSteps.map((s) => s.stage ?? 0))].sort((a, b) => a - b);
-    const laneIdForStage = new Map(distinctStages.map((s) => [s, newLaneId()]));
+    const laneIdForStage = new Map(distinctStages.map((stage) => [stage, newLaneId({
+      name: `Stage ${stage}`,
+      collapsed: true,
+    })]));
     const laneOrder = distinctStages.map((s) => laneIdForStage.get(s));
     const rows = rawSteps.map((step) => stepToRow(step, laneIdForStage.get(step.stage ?? 0)));
-    return { rows, laneOrder };
+    return { rows, laneOrder, laneMeta: normalizeLaneMeta(state.laneMeta, laneOrder) };
   }
 
   function expandForeach(step, varName, value) {
@@ -1014,6 +1546,7 @@
         draggingLaneId = null;
       } else if (draggingRowId) {
         moveRow(draggingRowId, laneId, null);
+        laneMetaFor(laneId).collapsed = false;
         draggingRowId = null;
         renderRows();
         save();
@@ -1042,28 +1575,266 @@
     });
   }
 
+  function rowsForLaneIds(laneIds) {
+    const allowedLaneIds = laneIds instanceof Set ? laneIds : new Set(laneIds);
+    return state.rows.filter((row) => allowedLaneIds.has(row.laneId));
+  }
+
+  function nextDuplicateLaneName(laneId) {
+    const sourceName = laneDisplayName(laneId);
+    const usedNames = new Set(state.laneOrder.map((id, index) =>
+      laneDisplayName(id, index).toLocaleLowerCase()));
+    let candidate = `${sourceName} copy`;
+    let suffix = 2;
+    while (usedNames.has(candidate.toLocaleLowerCase())) candidate = `${sourceName} copy ${suffix++}`;
+    return candidate;
+  }
+
+  function cloneRowForLane(row, laneId) {
+    const persistedRow = { ...row };
+    delete persistedRow.id;
+    delete persistedRow.result;
+    const clone = typeof structuredClone === 'function'
+      ? structuredClone(persistedRow)
+      : JSON.parse(JSON.stringify(persistedRow));
+    return emptyRow({
+      ...clone,
+      laneId,
+      result: null,
+      activePanel: ROW_PANEL.NONE,
+    });
+  }
+
+  function duplicateLane(laneId) {
+    const sourceIndex = state.laneOrder.indexOf(laneId);
+    if (sourceIndex < 0) return;
+    const sourceRows = state.rows.filter((row) => row.laneId === laneId);
+    const duplicateName = nextDuplicateLaneName(laneId);
+    const duplicateLaneId = newLaneId({ name: duplicateName, collapsed: true });
+    const duplicateRows = sourceRows.map((row) => cloneRowForLane(row, duplicateLaneId));
+    state.laneOrder.splice(sourceIndex + 1, 0, duplicateLaneId);
+
+    const sourceRowIndices = state.rows
+      .map((row, index) => ({ row, index }))
+      .filter(({ row }) => row.laneId === laneId)
+      .map(({ index }) => index);
+    const insertionIndex = sourceRowIndices.length
+      ? sourceRowIndices[sourceRowIndices.length - 1] + 1
+      : state.rows.length;
+    state.rows.splice(insertionIndex, 0, ...duplicateRows);
+    renderRows();
+    save();
+    toast(`Duplicated ${laneDisplayName(laneId, sourceIndex)} as ${duplicateName}`);
+  }
+
+  function createGroupActionButton({ className, icon, label, title, onClick, disabled = false }) {
+    const button = document.createElement('button');
+    button.className = className;
+    button.type = 'button';
+    button.draggable = false;
+    button.disabled = disabled;
+    button.title = title;
+    button.setAttribute('aria-label', title);
+    button.innerHTML = icon;
+    if (label) {
+      const labelElement = document.createElement('span');
+      labelElement.textContent = label;
+      button.appendChild(labelElement);
+    }
+    button.addEventListener('click', onClick);
+    return button;
+  }
+
+  function laneNameIsUsed(name, currentLaneId) {
+    const normalizedName = name.toLocaleLowerCase();
+    return state.laneOrder.some((laneId, index) =>
+      laneId !== currentLaneId && laneDisplayName(laneId, index).toLocaleLowerCase() === normalizedName);
+  }
+
+  function beginLaneNameEdit({ laneId, laneIndex, container }) {
+    if (runInProgress) return;
+    const currentName = laneDisplayName(laneId, laneIndex);
+    container.classList.add('is-editing');
+    container.innerHTML = '';
+
+    const input = document.createElement('input');
+    input.className = 'lane-name-input';
+    input.type = 'text';
+    input.value = currentName;
+    input.maxLength = GROUP_NAME_MAX_LENGTH;
+    input.autocomplete = 'off';
+    input.spellcheck = false;
+    input.setAttribute('aria-label', `Edit ${currentName} name`);
+
+    const actions = document.createElement('span');
+    actions.className = 'lane-name-editor-actions';
+    const saveButton = createGroupActionButton({
+      className: 'lane-name-editor-btn is-save',
+      icon: ICONS.check,
+      label: '',
+      title: 'Save group name',
+      onClick: () => saveName(),
+    });
+    const cancelButton = document.createElement('button');
+    cancelButton.className = 'lane-name-editor-btn is-cancel';
+    cancelButton.type = 'button';
+    cancelButton.title = 'Cancel editing';
+    cancelButton.setAttribute('aria-label', 'Cancel editing group name');
+    cancelButton.textContent = '×';
+
+    const showInputError = (message) => {
+      input.classList.add('has-error');
+      input.setAttribute('aria-invalid', 'true');
+      input.title = message;
+      toast(message);
+      input.focus();
+      input.select();
+    };
+    const saveName = () => {
+      const nextName = input.value.trim();
+      if (!nextName) {
+        showInputError('Group name cannot be empty');
+        return;
+      }
+      if (laneNameIsUsed(nextName, laneId)) {
+        showInputError(`A group named “${nextName}” already exists`);
+        return;
+      }
+      laneMetaFor(laneId).name = nextName;
+      renderRows();
+      save();
+      toast(`Group renamed to ${nextName}`);
+    };
+    const cancel = () => renderRows();
+
+    input.addEventListener('input', () => {
+      input.classList.remove('has-error');
+      input.removeAttribute('aria-invalid');
+      input.removeAttribute('title');
+    });
+    input.addEventListener('click', (event) => event.stopPropagation());
+    input.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        saveName();
+      } else if (event.key === 'Escape') {
+        event.preventDefault();
+        cancel();
+      }
+    });
+    cancelButton.addEventListener('click', cancel);
+    actions.appendChild(saveButton);
+    actions.appendChild(cancelButton);
+    container.appendChild(input);
+    container.appendChild(actions);
+    input.focus();
+    input.select();
+  }
+
+  function buildGroupSelectionBar() {
+    const selectedRows = rowsForLaneIds(selectedLaneIds);
+    const bar = document.createElement('div');
+    bar.className = 'group-selection-bar';
+    bar.setAttribute('role', 'region');
+    bar.setAttribute('aria-label', 'Selected group actions');
+
+    const summary = document.createElement('div');
+    summary.className = 'group-selection-summary';
+    const indicator = document.createElement('span');
+    indicator.className = 'group-selection-indicator';
+    indicator.innerHTML = ICONS.check;
+    const copy = document.createElement('span');
+    const title = document.createElement('strong');
+    title.textContent = `${selectedLaneIds.size} group${selectedLaneIds.size === 1 ? '' : 's'} selected`;
+    const detail = document.createElement('small');
+    detail.textContent = `${selectedRows.length} endpoint${selectedRows.length === 1 ? '' : 's'} will run in workspace order`;
+    copy.appendChild(title);
+    copy.appendChild(detail);
+    summary.appendChild(indicator);
+    summary.appendChild(copy);
+
+    const actions = document.createElement('div');
+    actions.className = 'group-selection-actions';
+    const runSelectedButton = createGroupActionButton({
+      className: 'btn primary small bulk-group-btn run-selected-groups-btn',
+      icon: ICONS.play,
+      label: runInProgress ? 'Running…' : 'Run selected',
+      title: 'Run only the selected groups',
+      disabled: runInProgress || !selectedRows.length,
+      onClick: () => runStaged(rowsForLaneIds(selectedLaneIds), {
+        resetVars: true,
+        mode: RUN_MODE.GROUPS,
+      }),
+    });
+    const selectAllButton = createGroupActionButton({
+      className: 'btn ghost small bulk-group-btn group-selection-mutation-btn',
+      icon: ICONS.check,
+      label: 'Select all',
+      title: 'Select every group',
+      disabled: runInProgress || selectedLaneIds.size === state.laneOrder.length,
+      onClick: () => {
+        state.laneOrder.forEach((laneId) => selectedLaneIds.add(laneId));
+        renderRows();
+      },
+    });
+    const clearButton = document.createElement('button');
+    clearButton.className = 'btn ghost small group-selection-mutation-btn';
+    clearButton.type = 'button';
+    clearButton.disabled = runInProgress;
+    clearButton.textContent = 'Clear';
+    clearButton.addEventListener('click', () => {
+      selectedLaneIds.clear();
+      renderRows();
+    });
+    actions.appendChild(runSelectedButton);
+    actions.appendChild(selectAllButton);
+    actions.appendChild(clearButton);
+    bar.appendChild(summary);
+    bar.appendChild(actions);
+    return bar;
+  }
+
   // ---- rendering ------------------------------------------------------------
 
   function renderRows() {
+    closeSharedSelect();
     ensureAtLeastOneLane();
+    [...selectedLaneIds].forEach((laneId) => {
+      if (!state.laneOrder.includes(laneId)) selectedLaneIds.delete(laneId);
+    });
     const list = el('rowsList');
     list.innerHTML = '';
-    const showLaneChrome = state.laneOrder.length > 1 || state.rows.some((r) => Object.keys(r.capture || {}).length || (r.assert || []).length);
-    const isSearching = Boolean(state.endpointSearch.trim());
+    const normalizedSearch = state.endpointSearch.trim();
+    const isSearching = Boolean(normalizedSearch);
+    if (!isSearching || !previousEndpointSearch) searchCollapsedLaneIds.clear();
+    previousEndpointSearch = normalizedSearch;
     let visibleCount = 0;
+    if (selectedLaneIds.size) list.appendChild(buildGroupSelectionBar());
 
     state.laneOrder.forEach((laneId, idx) => {
-      const laneRows = state.rows.filter((r) => r.laneId === laneId && rowMatchesSearch(r));
+      const allLaneRows = state.rows.filter((r) => r.laneId === laneId);
+      const laneRows = allLaneRows.filter((r) => rowMatchesSearch(r));
       if (isSearching && !laneRows.length) return;
       visibleCount += laneRows.length;
+      const meta = laneMetaFor(laneId);
+      const isCollapsed = isSearching
+        ? searchCollapsedLaneIds.has(laneId)
+        : meta.collapsed;
       const laneEl = document.createElement('div');
       laneEl.className = 'stage-lane';
+      laneEl.classList.toggle('is-collapsed', isCollapsed);
+      laneEl.classList.toggle('is-selected', selectedLaneIds.has(laneId));
+      laneEl.classList.toggle('is-run-active', runInProgress && activeRunLaneId === laneId);
       laneEl.dataset.laneId = laneId;
 
       const header = document.createElement('div');
       header.className = 'stage-lane-header';
       header.draggable = true;
-      header.addEventListener('dragstart', () => {
+      header.addEventListener('dragstart', (event) => {
+        if (event.target.closest('button, input')) {
+          event.preventDefault();
+          return;
+        }
         draggingLaneId = laneId;
         draggingRowId = null;
         header.classList.add('is-dragging');
@@ -1079,27 +1850,122 @@
       handle.textContent = '⠿';
       header.appendChild(handle);
 
-      const title = document.createElement('span');
-      title.className = 'lane-title';
-      title.textContent = `Group ${idx + 1}`;
+      const selectButton = document.createElement('button');
+      const isSelected = selectedLaneIds.has(laneId);
+      selectButton.className = 'lane-select-toggle';
+      selectButton.type = 'button';
+      selectButton.draggable = false;
+      selectButton.disabled = runInProgress;
+      selectButton.innerHTML = ICONS.check;
+      selectButton.title = isSelected ? 'Remove group from selection' : 'Select group';
+      selectButton.setAttribute('role', 'checkbox');
+      selectButton.setAttribute('aria-checked', String(isSelected));
+      selectButton.setAttribute('aria-label', `${isSelected ? 'Deselect' : 'Select'} ${laneDisplayName(laneId, idx)}`);
+      selectButton.addEventListener('click', (event) => {
+        event.stopPropagation();
+        if (selectedLaneIds.has(laneId)) selectedLaneIds.delete(laneId);
+        else selectedLaneIds.add(laneId);
+        renderRows();
+      });
+      header.appendChild(selectButton);
+
+      const collapseButton = document.createElement('button');
+      collapseButton.className = 'lane-collapse-toggle';
+      collapseButton.type = 'button';
+      collapseButton.draggable = false;
+      collapseButton.disabled = runInProgress && activeRunLaneId === laneId;
+      collapseButton.innerHTML = '<span aria-hidden="true">⌄</span>';
+      collapseButton.title = isCollapsed ? 'Expand group' : 'Collapse group';
+      collapseButton.setAttribute('aria-label', `${isCollapsed ? 'Expand' : 'Collapse'} ${laneDisplayName(laneId, idx)}`);
+      collapseButton.setAttribute('aria-expanded', String(!isCollapsed));
+      collapseButton.setAttribute('aria-controls', `lane-body-${laneId}`);
+      collapseButton.addEventListener('click', (event) => {
+        event.stopPropagation();
+        if (isSearching) {
+          if (searchCollapsedLaneIds.has(laneId)) searchCollapsedLaneIds.delete(laneId);
+          else searchCollapsedLaneIds.add(laneId);
+        } else {
+          meta.collapsed = !meta.collapsed;
+        }
+        renderRows();
+        if (!isSearching) save();
+      });
+      header.appendChild(collapseButton);
+
+      const title = document.createElement('div');
+      title.className = 'lane-title lane-title-editor';
+      const titleButton = document.createElement('button');
+      titleButton.className = 'lane-title-value lane-mutation-btn';
+      titleButton.type = 'button';
+      titleButton.disabled = runInProgress;
+      titleButton.textContent = laneDisplayName(laneId, idx);
+      titleButton.title = `Rename ${laneDisplayName(laneId, idx)}`;
+      titleButton.setAttribute('aria-label', `Rename ${laneDisplayName(laneId, idx)}`);
+      const editNameButton = document.createElement('button');
+      editNameButton.className = 'lane-name-edit-btn lane-mutation-btn';
+      editNameButton.type = 'button';
+      editNameButton.disabled = runInProgress;
+      editNameButton.innerHTML = ICONS.edit;
+      editNameButton.title = `Rename ${laneDisplayName(laneId, idx)}`;
+      editNameButton.setAttribute('aria-label', `Rename ${laneDisplayName(laneId, idx)}`);
+      const editGroupName = (event) => {
+        event.stopPropagation();
+        beginLaneNameEdit({ laneId, laneIndex: idx, container: title });
+      };
+      titleButton.addEventListener('click', editGroupName);
+      editNameButton.addEventListener('click', editGroupName);
+      title.appendChild(titleButton);
+      title.appendChild(editNameButton);
       header.appendChild(title);
+
+      const count = document.createElement('span');
+      count.className = 'lane-count';
+      count.textContent = String(allLaneRows.length);
+      count.title = `${allLaneRows.length} endpoint${allLaneRows.length === 1 ? '' : 's'}`;
+      header.appendChild(count);
 
       const hint = document.createElement('span');
       hint.className = 'lane-hint';
       hint.textContent = idx === 0
-        ? 'runs first · rows run one at a time in order'
-        : 'runs after the group above · rows run one at a time in order';
+        ? 'runs first · endpoints run in order'
+        : `execution position ${idx + 1} · endpoints run in order`;
       header.appendChild(hint);
 
       const headerActions = document.createElement('div');
       headerActions.className = 'lane-actions';
 
+      const runGroupButton = createGroupActionButton({
+        className: 'btn primary small lane-action-btn run-group-btn',
+        icon: ICONS.play,
+        label: runInProgress && activeRunLaneId === laneId ? 'Running…' : 'Run',
+        title: `Run only ${laneDisplayName(laneId, idx)}`,
+        disabled: runInProgress || !allLaneRows.length,
+        onClick: () => runStaged(state.rows.filter((row) => row.laneId === laneId), {
+          resetVars: true,
+          mode: RUN_MODE.GROUPS,
+        }),
+      });
+      headerActions.appendChild(runGroupButton);
+
+      const duplicateButton = createGroupActionButton({
+        className: 'btn ghost small lane-action-btn lane-icon-action lane-mutation-btn duplicate-group-btn',
+        icon: ICONS.copy,
+        label: '',
+        title: `Duplicate ${laneDisplayName(laneId, idx)}`,
+        disabled: runInProgress,
+        onClick: () => duplicateLane(laneId),
+      });
+      headerActions.appendChild(duplicateButton);
+
       const addHereBtn = document.createElement('button');
-      addHereBtn.className = 'btn ghost small';
+      addHereBtn.className = 'btn ghost small lane-add-row-btn lane-mutation-btn';
+      addHereBtn.type = 'button';
+      addHereBtn.disabled = runInProgress;
       addHereBtn.textContent = '+ row';
       addHereBtn.title = 'Add an empty row to this group';
       addHereBtn.addEventListener('click', () => {
         state.rows.push(emptyRow({ laneId }));
+        meta.collapsed = false;
         renderRows();
         save();
       });
@@ -1107,23 +1973,28 @@
 
       const removeLaneBtn = document.createElement('button');
       removeLaneBtn.className = 'lane-remove';
+      removeLaneBtn.type = 'button';
+      removeLaneBtn.disabled = runInProgress;
       removeLaneBtn.textContent = '×';
-      removeLaneBtn.title = laneRows.length ? 'Delete group and its rows' : 'Delete group';
+      removeLaneBtn.title = allLaneRows.length ? 'Delete group and its rows' : 'Delete group';
       removeLaneBtn.addEventListener('click', async () => {
         if (state.laneOrder.length <= 1) {
           toast('Keep at least one group');
           return;
         }
-        if (laneRows.length) {
+        if (allLaneRows.length) {
+          const groupName = laneDisplayName(laneId, idx);
           const confirmed = await showConfirm({
-            title: `Delete Group ${idx + 1}`,
-            message: `This will remove ${laneRows.length} row${laneRows.length > 1 ? 's' : ''} from this group.`,
+            title: `Delete ${groupName}`,
+            message: `This will remove ${allLaneRows.length} row${allLaneRows.length > 1 ? 's' : ''} from this group.`,
             okText: 'Delete group',
           });
           if (!confirmed) return;
         }
         state.laneOrder = state.laneOrder.filter((id) => id !== laneId);
         state.rows = state.rows.filter((row) => row.laneId !== laneId);
+        delete state.laneMeta[laneId];
+        selectedLaneIds.delete(laneId);
         renderRows();
         save();
       });
@@ -1134,7 +2005,11 @@
 
       const body = document.createElement('div');
       body.className = 'stage-lane-body';
-      if (!laneRows.length) {
+      body.id = `lane-body-${laneId}`;
+      body.hidden = isCollapsed;
+      if (isCollapsed) {
+        // Avoid constructing hundreds of hidden controls for large Swagger imports.
+      } else if (!laneRows.length) {
         const emptyHint = document.createElement('div');
         emptyHint.className = 'lane-empty-hint';
         emptyHint.textContent = 'Drag a row here';
@@ -1155,11 +2030,7 @@
       list.appendChild(empty);
     }
 
-    if (!showLaneChrome) {
-      list.classList.add('single-lane');
-    } else {
-      list.classList.remove('single-lane');
-    }
+    list.classList.remove('single-lane');
 
     updateSearchCount(isSearching ? visibleCount : state.rows.length);
     updateSummary();
@@ -1510,7 +2381,10 @@
       methodSel.appendChild(opt);
     }
     methodSel.addEventListener('change', () => { row.method = methodSel.value; saveDebounced(); });
-    methodCell.appendChild(methodSel);
+    methodCell.appendChild(enhanceSelect(methodSel, {
+      variant: 'method',
+      label: `HTTP method for ${row.path || 'endpoint'}`,
+    }));
 
     const pathCell = document.createElement('div');
     pathCell.className = 'request-path';
@@ -1520,16 +2394,32 @@
     pathInput.className = 'path-input';
     pathInput.placeholder = '/admin/courses/queue';
     pathInput.value = row.path;
-    pathInput.addEventListener('input', () => { row.path = pathInput.value; saveDebounced(); });
+    pathInput.title = row.path || 'Endpoint path';
+    pathInput.addEventListener('input', () => {
+      row.path = pathInput.value;
+      pathInput.title = row.path || 'Endpoint path';
+      saveDebounced();
+    });
     const pathInputWrap = document.createElement('div');
     pathInputWrap.className = 'path-input-wrap';
+    const pathActions = document.createElement('div');
+    pathActions.className = 'path-input-actions';
+    const expandPathButton = document.createElement('button');
+    expandPathButton.className = 'icon-btn endpoint-expand-btn';
+    expandPathButton.type = 'button';
+    expandPathButton.innerHTML = ICONS.expand;
+    expandPathButton.title = 'Open full endpoint path editor';
+    expandPathButton.setAttribute('aria-label', `Open full path editor for ${row.path || 'endpoint'}`);
+    expandPathButton.addEventListener('click', () => openEndpointPathEditor(row, expandPathButton));
     pathInputWrap.appendChild(pathInput);
-    pathInputWrap.appendChild(createCopyIconButton({
+    pathActions.appendChild(expandPathButton);
+    pathActions.appendChild(createCopyIconButton({
       label: 'Copy endpoint as cURL',
       copiedMessage: 'cURL copied',
       getText: () => buildCurlCommand(row),
       variant: 'endpoint-copy-btn',
     }));
+    pathInputWrap.appendChild(pathActions);
     pathCell.appendChild(pathInputWrap);
 
     const roleCell = document.createElement('div');
@@ -1537,14 +2427,20 @@
     roleCell.dataset.label = 'Role';
     const roleSel = document.createElement('select');
     const roleOptions = [
-      ['none', 'None'],
-      ...state.tokenProfiles.map((profile) => [profile.key, profile.label]),
-      ['custom', 'Custom var'],
+      { value: 'none', label: 'None', description: 'No Authorization header' },
+      ...state.tokenProfiles.map((profile) => ({
+        value: profile.key,
+        label: profile.label,
+        description: `${profile.varName} · ${profile.scope}`,
+      })),
+      { value: 'custom', label: 'Custom variable', description: 'Use a custom token variable name' },
     ];
-    for (const [val, label] of roleOptions) {
+    for (const { value, label, description } of roleOptions) {
       const opt = document.createElement('option');
-      opt.value = val; opt.textContent = label;
-      if (val === row.role) opt.selected = true;
+      opt.value = value;
+      opt.textContent = label;
+      opt.dataset.description = description;
+      if (value === row.role) opt.selected = true;
       roleSel.appendChild(opt);
     }
     const customVarInput = document.createElement('input');
@@ -1564,10 +2460,13 @@
       }
       saveDebounced();
     });
-    const roleWrap = document.createElement('label');
+    const roleWrap = document.createElement('div');
     roleWrap.className = 'compact-field';
     roleWrap.innerHTML = '<span>Role</span>';
-    roleWrap.appendChild(roleSel);
+    roleWrap.appendChild(enhanceSelect(roleSel, {
+      variant: 'role',
+      label: `Authentication role for ${row.path || 'endpoint'}`,
+    }));
     roleWrap.appendChild(customVarInput);
     roleCell.appendChild(roleWrap);
 
@@ -1583,9 +2482,15 @@
     expectCell.dataset.label = 'Expect';
     const expectInput = document.createElement('input');
     expectInput.type = 'text';
-    expectInput.placeholder = '2xx';
+    expectInput.placeholder = '2xx · strict: =201';
+    expectInput.title = 'Any 2xx response is successful. Prefix a code with = for an exact check, for example =201.';
     expectInput.value = row.expect;
     expectInput.addEventListener('input', () => { row.expect = expectInput.value; saveDebounced(); });
+    expectInput.addEventListener('change', () => {
+      row.expect = normalizeStatusExpectation(expectInput.value);
+      expectInput.value = row.expect;
+      save();
+    });
     const expectWrap = document.createElement('label');
     expectWrap.className = 'compact-field';
     expectWrap.innerHTML = '<span>Expect</span>';
@@ -1856,6 +2761,7 @@
     el('sumPass').textContent = pass;
     el('sumBug').textContent = bug;
     el('sumFail').textContent = fail;
+    syncTokenCardActions();
   }
 
   // ---- running (groups and rows execute sequentially, with capture between rows) --
@@ -2078,15 +2984,51 @@
   }
 
   function syncRunControls() {
+    const setLabel = (button, label) => {
+      const labelElement = button?.querySelector('span');
+      if (labelElement) labelElement.textContent = label;
+    };
     const runAllButton = el('runAllBtn');
     if (runAllButton) {
-      runAllButton.disabled = runInProgress;
+      runAllButton.disabled = runInProgress || !state.rows.length;
       runAllButton.textContent = runInProgress ? 'Running…' : 'Run all';
     }
-    document.querySelectorAll('.run-endpoint-btn').forEach((button) => {
+    document.querySelectorAll('.run-group-btn').forEach((button) => {
+      const laneId = button.closest('.stage-lane')?.dataset.laneId;
+      const hasRows = state.rows.some((row) => row.laneId === laneId);
+      const isActive = runInProgress && activeRunLaneId === laneId;
+      button.disabled = runInProgress || !hasRows;
+      setLabel(button, isActive ? 'Running…' : 'Run');
+    });
+    document.querySelectorAll('.run-selected-groups-btn').forEach((button) => {
+      const hasSelectedRows = rowsForLaneIds(selectedLaneIds).length > 0;
+      button.disabled = runInProgress || !hasSelectedRows;
+      setLabel(button, runInProgress ? 'Running…' : 'Run selected');
+    });
+    document.querySelectorAll([
+      '.run-endpoint-btn',
+      '.lane-mutation-btn',
+      '.group-selection-mutation-btn',
+      '.lane-select-toggle',
+      '.lane-remove',
+    ].join(',')).forEach((button) => {
       button.disabled = runInProgress;
     });
+    syncTokenCardActions();
     el('rowsList')?.setAttribute('aria-busy', String(runInProgress));
+  }
+
+  function activateRunLane(laneId) {
+    activeRunLaneId = laneId;
+    laneMetaFor(laneId).collapsed = false;
+    renderRows();
+    syncRunControls();
+    const activeLane = [...document.querySelectorAll('.stage-lane')]
+      .find((lane) => lane.dataset.laneId === laneId);
+    if (activeLane) {
+      const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      activeLane.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' });
+    }
   }
 
   async function runStaged(rows, { resetVars, mode }) {
@@ -2094,11 +3036,20 @@
       toast('Wait for the current run to finish');
       return;
     }
+    if (!rows.length) {
+      toast('This selection does not contain any endpoints');
+      return;
+    }
 
     runInProgress = true;
-    if (mode === RUN_MODE.ALL) {
+    const isGroupRun = mode === RUN_MODE.ALL || mode === RUN_MODE.GROUPS;
+    if (isGroupRun) {
       hideRunFailureAlert();
       clearFailureHighlight();
+      if (state.endpointSearch) {
+        state.endpointSearch = '';
+        syncEndpointSearchControls();
+      }
     }
     syncRunControls();
     try {
@@ -2110,6 +3061,10 @@
         if (stopped) {
           for (const row of laneRows) { row.result = { state: 'skipped' }; updateRowResult(row); }
           continue;
+        }
+
+        if (isGroupRun && laneRows[0]?.laneId) {
+          activateRunLane(laneRows[0].laneId);
         }
 
         for (const row of laneRows) {
@@ -2127,15 +3082,20 @@
           const outcome = await evaluateAndCapture(row, fetched);
           updateRowResult(row);
           updateSummary();
-          if (mode === RUN_MODE.ALL && (outcome === 'hardfail' || outcome === 'fail-continue')) {
+          if (isGroupRun && (outcome === 'hardfail' || outcome === 'fail-continue')) {
             revealRunFailure(row, outcome);
           }
           if (outcome === 'hardfail') stopped = true;
         }
       }
     } finally {
+      activeRunLaneId = null;
+      document.querySelectorAll('.stage-lane.is-run-active').forEach((lane) => {
+        lane.classList.remove('is-run-active');
+      });
       runInProgress = false;
       syncRunControls();
+      if (isGroupRun) save();
     }
   }
 
@@ -2167,7 +3127,7 @@
     state.laneOrder.forEach((laneId, idx) => {
       const laneRows = state.rows.filter((r) => r.laneId === laneId);
       if (!laneRows.length) return;
-      lines.push(`### Group ${idx + 1}`);
+      lines.push(`### ${laneDisplayName(laneId, idx)}`);
       lines.push('');
       for (const row of laneRows) {
         const r = row.result;
@@ -2269,13 +3229,133 @@
     syncTokenDiagnostics();
   }
 
+  function jsonImportEndpointCount(parsed) {
+    if (!isRecord(parsed)) return 0;
+    if (Array.isArray(parsed.rows)) return parsed.rows.length;
+    if (!Array.isArray(parsed.steps)) return 0;
+    return parsed.steps.reduce((count, step) => {
+      if (!isRecord(step)) return count;
+      const values = isRecord(step.foreach) && Array.isArray(step.foreach.values)
+        ? step.foreach.values.length
+        : 1;
+      return count + values;
+    }, 0);
+  }
+
+  function captureWorkspaceForAppend() {
+    return {
+      baseUrl: state.baseUrl,
+      tenantId: state.tenantId,
+      sendTenantHeader: state.sendTenantHeader,
+      tokens: { ...state.tokens },
+      tokenProfiles: state.tokenProfiles.map((profile) => ({ ...profile })),
+      suiteStaticVars: { ...suiteStaticVars },
+      laneMeta: normalizeLaneMeta(state.laneMeta, state.laneOrder),
+    };
+  }
+
+  function restoreConfigurationAfterAppend(current, importedRows) {
+    const importedProfiles = state.tokenProfiles.map((profile) => ({ ...profile }));
+    const importedTokens = { ...state.tokens };
+    const importedStaticVars = { ...suiteStaticVars };
+    const mergedProfiles = current.tokenProfiles.map((profile) => ({ ...profile }));
+    const importedRoleMap = new Map();
+
+    importedProfiles.forEach((profile) => {
+      let target = mergedProfiles.find((candidate) => candidate.varName === profile.varName);
+      if (!target) {
+        const usedKeys = new Set(mergedProfiles.map((candidate) => candidate.key));
+        let key = profile.key;
+        let suffix = 2;
+        while (usedKeys.has(key)) key = `${profile.key}_${suffix++}`;
+        target = { ...profile, key };
+        mergedProfiles.push(target);
+      }
+      importedRoleMap.set(profile.key, target.key);
+    });
+
+    const mergedTokens = Object.fromEntries(mergedProfiles.map((profile) => {
+      const currentProfile = current.tokenProfiles.find((candidate) =>
+        candidate.varName === profile.varName);
+      const importedProfile = importedProfiles.find((candidate) =>
+        importedRoleMap.get(candidate.key) === profile.key);
+      const currentToken = currentProfile ? current.tokens[currentProfile.key] : '';
+      const importedToken = importedProfile ? importedTokens[importedProfile.key] : '';
+      return [profile.key, currentToken || importedToken || ''];
+    }));
+
+    importedRows.forEach((row) => {
+      if (importedRoleMap.has(row.role)) row.role = importedRoleMap.get(row.role);
+    });
+    state.baseUrl = current.baseUrl;
+    state.tenantId = current.tenantId;
+    state.sendTenantHeader = current.sendTenantHeader;
+    state.tokenProfiles = mergedProfiles;
+    state.tokens = mergedTokens;
+    state.laneMeta = current.laneMeta;
+    suiteStaticVars = { ...importedStaticVars, ...current.suiteStaticVars };
+  }
+
+  function appendImportedWorkspace({ rows, laneOrder, laneMeta }) {
+    const sourceLaneIds = [];
+    const rememberLane = (laneId) => {
+      if (typeof laneId === 'string' && laneId && !sourceLaneIds.includes(laneId)) sourceLaneIds.push(laneId);
+    };
+    laneOrder.forEach(rememberLane);
+    rows.forEach((row) => rememberLane(row.laneId));
+
+    const laneIdMap = new Map(sourceLaneIds.map((sourceLaneId) => {
+      const meta = isRecord(laneMeta[sourceLaneId]) ? laneMeta[sourceLaneId] : {};
+      const newId = newLaneId({
+        name: typeof meta.name === 'string' ? meta.name : '',
+        collapsed: typeof meta.collapsed === 'boolean' ? meta.collapsed : true,
+      });
+      return [sourceLaneId, newId];
+    }));
+    const fallbackLaneId = laneIdMap.values().next().value || newLaneId({ collapsed: true });
+    if (!sourceLaneIds.length) sourceLaneIds.push('__imported__');
+    const appendedLaneIds = sourceLaneIds.map((sourceLaneId) =>
+      laneIdMap.get(sourceLaneId) || fallbackLaneId);
+    const appendedRows = rows.map((row) =>
+      cloneRowForLane(row, laneIdMap.get(row.laneId) || fallbackLaneId));
+
+    state.laneOrder.push(...appendedLaneIds);
+    state.rows.push(...appendedRows);
+    return appendedRows.length;
+  }
+
   async function importFile(file) {
     try {
       const parsed = JSON.parse(await file.text());
+      const importedEndpointCount = jsonImportEndpointCount(parsed);
+      const existingEndpointCount = state.rows.filter((row) => String(row.path || '').trim()).length;
+      let importAction = JSON_IMPORT_ACTION.REPLACE;
+      if (existingEndpointCount && importedEndpointCount) {
+        importAction = await showJsonImportChoice({
+          existingCount: existingEndpointCount,
+          importedCount: importedEndpointCount,
+        });
+        if (!importAction) {
+          toast('JSON import cancelled');
+          return;
+        }
+      }
+
+      const appendSnapshot = importAction === JSON_IMPORT_ACTION.APPEND
+        ? captureWorkspaceForAppend()
+        : null;
       const isSuite = Array.isArray(parsed.steps);
-      const { rows, laneOrder, importedTokenCount, tokensOnly } = importParsedJson(parsed);
-      state.rows = rows;
-      state.laneOrder = laneOrder;
+      const { rows, laneOrder, laneMeta, importedTokenCount, tokensOnly } = importParsedJson(parsed);
+      let importedRowCount = rows.length;
+      if (appendSnapshot && !tokensOnly) {
+        restoreConfigurationAfterAppend(appendSnapshot, rows);
+        importedRowCount = appendImportedWorkspace({ rows, laneOrder, laneMeta });
+      } else {
+        state.rows = rows;
+        state.laneOrder = laneOrder;
+        state.laneMeta = normalizeLaneMeta(laneMeta, laneOrder);
+      }
+      if (!tokensOnly) selectedLaneIds.clear();
       syncConnectionInputs();
       seedVars(true);
       renderRows();
@@ -2289,12 +3369,242 @@
           : 'Token JSON imported');
       } else {
         toast(isSuite
-          ? `Imported suite (${rows.length} steps${tokenSummary})`
-          : `Imported ${rows.length} rows${tokenSummary}`);
+          ? `${importAction === JSON_IMPORT_ACTION.APPEND ? 'Added' : 'Imported'} suite (${importedRowCount} steps${tokenSummary})`
+          : `${importAction === JSON_IMPORT_ACTION.APPEND ? 'Added' : 'Imported'} ${importedRowCount} rows${tokenSummary}`);
       }
     } catch (err) {
       toast(`Import failed: ${err}`);
     }
+  }
+
+  function populateSwaggerAuthProfiles() {
+    const select = el('swaggerAuthProfile');
+    if (!select) return;
+    const previousValue = select.value;
+    select.innerHTML = '';
+
+    const noTokenOption = document.createElement('option');
+    noTokenOption.value = 'none';
+    noTokenOption.textContent = 'No token (leave unassigned)';
+    noTokenOption.dataset.description = 'Secured endpoints will not receive an Authorization header';
+    select.appendChild(noTokenOption);
+
+    state.tokenProfiles.forEach((profile) => {
+      const option = document.createElement('option');
+      option.value = profile.key;
+      option.textContent = profile.label;
+      option.dataset.description = `${profile.varName} · ${profile.scope}`;
+      select.appendChild(option);
+    });
+
+    const preferredValue = previousValue || 'none';
+    select.value = [...select.options].some((option) => option.value === preferredValue)
+      ? preferredValue
+      : 'none';
+    refreshSharedSelect(select);
+  }
+
+  function isSwaggerImportPayload(value) {
+    return isRecord(value) && Array.isArray(value.operations) &&
+      value.operations.every((operation) => isRecord(operation) &&
+        typeof operation.method === 'string' && typeof operation.path === 'string');
+  }
+
+  function swaggerOperationToRow(operation, laneId, authProfile) {
+    const isSecured = operation.secured === true;
+    const tags = Array.isArray(operation.tags) ? operation.tags.map(String).filter(Boolean) : [];
+    const summary = typeof operation.summary === 'string' ? operation.summary.trim() : '';
+    const noteParts = [summary, tags.length ? `Tags: ${tags.join(', ')}` : ''].filter(Boolean);
+    return emptyRow({
+      laneId,
+      method: operation.method.toUpperCase(),
+      path: operation.path,
+      role: isSecured && authProfile ? authProfile.key : 'none',
+      authVar: isSecured && authProfile ? authProfile.varName : '',
+      headers: isRecord(operation.headers) ? operation.headers : {},
+      body: typeof operation.body === 'string' ? operation.body : '',
+      expect: typeof operation.expect === 'string' ? operation.expect : '',
+      note: noteParts.join(' · '),
+    });
+  }
+
+  function swaggerGroupName(operation) {
+    if (typeof operation.group === 'string' && operation.group.trim()) return operation.group.trim();
+    const primaryTag = Array.isArray(operation.tags)
+      ? operation.tags.map(String).find((tag) => tag.trim())
+      : '';
+    return primaryTag?.trim() || 'Other';
+  }
+
+  function bindSwaggerImport() {
+    const trigger = el('swaggerImportBtn');
+    const modal = el('swaggerImportModal');
+    const form = el('swaggerImportForm');
+    const urlInput = el('swaggerUrl');
+    const closeButton = el('swaggerImportClose');
+    const cancelButton = el('swaggerImportCancel');
+    const submitButton = el('swaggerImportSubmit');
+    const feedback = el('swaggerImportFeedback');
+    if (!trigger || !modal || !form || !urlInput || !closeButton || !cancelButton || !submitButton || !feedback) return;
+
+    let controller = null;
+    const defaultFeedback = 'Supports OpenAPI 3.x, Swagger 2.0, JSON, YAML, and embedded Swagger UI documents.';
+
+    const setFeedback = (message, stateName = '') => {
+      feedback.textContent = message;
+      feedback.classList.toggle('is-loading', stateName === 'loading');
+      feedback.classList.toggle('has-error', stateName === 'error');
+    };
+
+    const setLoading = (loading) => {
+      submitButton.disabled = loading;
+      urlInput.disabled = loading;
+      el('swaggerImportMode').disabled = loading;
+      el('swaggerAuthProfile').disabled = loading;
+      el('swaggerSetBaseUrl').disabled = loading;
+      refreshSharedSelect(el('swaggerImportMode'));
+      refreshSharedSelect(el('swaggerAuthProfile'));
+      submitButton.classList.toggle('swagger-import-submit-loading', loading);
+      submitButton.textContent = loading ? 'Discovering API…' : 'Import endpoints';
+    };
+
+    const close = () => {
+      controller?.abort();
+      controller = null;
+      setLoading(false);
+      modal.hidden = true;
+      document.body.classList.remove('modal-open');
+      document.removeEventListener('keydown', onKeydown);
+      trigger.focus({ preventScroll: true });
+    };
+
+    const onKeydown = (event) => {
+      if (event.key === 'Escape') close();
+    };
+
+    trigger.addEventListener('click', () => {
+      populateSwaggerAuthProfiles();
+      setFeedback(defaultFeedback);
+      modal.hidden = false;
+      document.body.classList.add('modal-open');
+      document.addEventListener('keydown', onKeydown);
+      window.requestAnimationFrame(() => urlInput.focus());
+    });
+    closeButton.addEventListener('click', close);
+    cancelButton.addEventListener('click', close);
+    modal.addEventListener('click', (event) => {
+      if (event.target === modal) close();
+    });
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const rawUrl = urlInput.value.trim();
+      try {
+        const parsedUrl = new URL(rawUrl);
+        if (!['http:', 'https:'].includes(parsedUrl.protocol)) throw new Error('Use an HTTP or HTTPS URL');
+      } catch (error) {
+        setFeedback(error instanceof Error && error.message !== 'Invalid URL'
+          ? error.message
+          : 'Enter a complete Swagger URL, including https://', 'error');
+        urlInput.focus();
+        return;
+      }
+
+      controller = new AbortController();
+      setLoading(true);
+      setFeedback('Finding the OpenAPI document and preparing endpoint rows…', 'loading');
+      try {
+        const response = await fetch('/api/swagger-import', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: rawUrl }),
+          signal: controller.signal,
+        });
+        const rawResponse = await response.text();
+        let imported;
+        try {
+          imported = JSON.parse(rawResponse);
+        } catch {
+          throw new Error(`Import service returned an invalid response (HTTP ${response.status})`);
+        }
+        if (!response.ok || !isSwaggerImportPayload(imported)) {
+          const message = isRecord(imported) && typeof imported.error === 'string'
+            ? imported.error
+            : 'The URL did not return a supported OpenAPI document';
+          throw new Error(message);
+        }
+
+        const mode = el('swaggerImportMode').value;
+        const selectedProfileKey = el('swaggerAuthProfile').value;
+        const authProfile = selectedProfileKey === 'none'
+          ? null
+          : state.tokenProfiles.find((profile) => profile.key === selectedProfileKey) || null;
+        const existingKeys = new Set(mode === SWAGGER_IMPORT_MODE.APPEND
+          ? state.rows.map((row) => `${row.method.toUpperCase()} ${row.path}`)
+          : []);
+        if (mode === SWAGGER_IMPORT_MODE.REPLACE) state.laneMeta = {};
+        const importedLaneOrder = [];
+        const laneByGroupName = new Map();
+        if (mode === SWAGGER_IMPORT_MODE.APPEND) {
+          state.laneOrder.forEach((laneId, index) => {
+            laneByGroupName.set(laneDisplayName(laneId, index).toLocaleLowerCase(), laneId);
+          });
+        }
+        const importedRows = [];
+        const touchedLaneIds = new Set();
+        let skippedCount = 0;
+        imported.operations.forEach((operation) => {
+          const key = `${operation.method.toUpperCase()} ${operation.path}`;
+          if (existingKeys.has(key)) {
+            skippedCount += 1;
+            return;
+          }
+          existingKeys.add(key);
+          const groupName = swaggerGroupName(operation);
+          const groupKey = groupName.toLocaleLowerCase();
+          let laneId = laneByGroupName.get(groupKey);
+          if (!laneId) {
+            laneId = newLaneId({ name: groupName, collapsed: true });
+            laneByGroupName.set(groupKey, laneId);
+            importedLaneOrder.push(laneId);
+          }
+          laneMetaFor(laneId).collapsed = true;
+          touchedLaneIds.add(laneId);
+          importedRows.push(swaggerOperationToRow(operation, laneId, authProfile));
+        });
+
+        if (mode === SWAGGER_IMPORT_MODE.REPLACE) {
+          selectedLaneIds.clear();
+          state.rows = importedRows;
+          state.laneOrder = importedLaneOrder;
+          state.laneMeta = normalizeLaneMeta(state.laneMeta, state.laneOrder);
+          state.endpointSearch = '';
+          syncEndpointSearchControls();
+        } else {
+          state.rows.push(...importedRows);
+          state.laneOrder.push(...importedLaneOrder);
+        }
+        if (el('swaggerSetBaseUrl').checked && typeof imported.baseUrl === 'string' && imported.baseUrl) {
+          state.baseUrl = imported.baseUrl;
+          syncConnectionInputs();
+        }
+
+        seedVars(true);
+        save();
+        close();
+        renderRows();
+        const skippedSummary = skippedCount ? ` · ${skippedCount} duplicate${skippedCount === 1 ? '' : 's'} skipped` : '';
+        const groupSummary = touchedLaneIds.size
+          ? ` in ${touchedLaneIds.size} group${touchedLaneIds.size === 1 ? '' : 's'}`
+          : '';
+        toast(`Imported ${importedRows.length} endpoint${importedRows.length === 1 ? '' : 's'}${groupSummary} from ${imported.title || 'Swagger'}${skippedSummary}`);
+      } catch (error) {
+        if (error?.name === 'AbortError') return;
+        controller = null;
+        setLoading(false);
+        setFeedback(error instanceof Error ? error.message : String(error), 'error');
+      }
+    });
   }
 
   function downloadJson(name, data) {
@@ -2386,6 +3696,7 @@
       if (!parsed.length) return;
       const laneId = lastLaneId();
       for (const p of parsed) state.rows.push(emptyRow({ ...p, laneId }));
+      laneMetaFor(laneId).collapsed = false;
       pasteBox.value = '';
       syncRouteComposer();
       renderRows();
@@ -2393,7 +3704,13 @@
       toast(`Added ${parsed.length} endpoint${parsed.length === 1 ? '' : 's'}`);
     });
 
-    const addEmpty = () => { state.rows.push(emptyRow({ laneId: lastLaneId() })); renderRows(); save(); };
+    const addEmpty = () => {
+      const laneId = lastLaneId();
+      state.rows.push(emptyRow({ laneId }));
+      laneMetaFor(laneId).collapsed = false;
+      renderRows();
+      save();
+    };
     el('addRowBtn').addEventListener('click', addEmpty);
     el('addRowBtn2').addEventListener('click', addEmpty);
 
@@ -2411,6 +3728,7 @@
         { method: 'GET', path: '/admin/courses/queue', role: 'student', authVar: 'STUDENT_TOKEN', expect: '403' },
       ];
       for (const ex of examples) state.rows.push(emptyRow({ ...ex, laneId }));
+      laneMetaFor(laneId).collapsed = false;
       renderRows();
       save();
     });
@@ -2423,6 +3741,8 @@
       });
       if (!confirmed) return;
       state.rows = [];
+      selectedLaneIds.clear();
+      state.laneMeta = {};
       state.laneOrder = [newLaneId()];
       renderRows();
       save();
@@ -2441,6 +3761,7 @@
           .filter((profile) => !profile.locked)
           .map((profile) => ({ ...profile })),
         laneOrder: state.laneOrder,
+        laneMeta: state.laneMeta,
         rows: state.rows.map(({ result, ...rest }) => rest),
       };
       downloadJson(`${el('suiteName').value || DEFAULT_PROJECT_NAME}.json`, data);
@@ -2506,8 +3827,17 @@
   function init() {
     initTheme();
     load();
+    enhanceSelect(el('swaggerImportMode'), {
+      variant: 'workspace-action',
+      label: 'Swagger workspace action',
+    });
+    enhanceSelect(el('swaggerAuthProfile'), {
+      variant: 'auth-profile',
+      label: 'Token for secured Swagger endpoints',
+    });
     bindConnectionInputs();
     bindEndpointControls();
+    bindSwaggerImport();
     bindRunBar();
     bindVarsPanel();
     bindBackToTop();

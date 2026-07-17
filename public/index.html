@@ -70,6 +70,7 @@
           <p>Build the flow, run it, and inspect each request without leaving the page.</p>
         </div>
         <div class="workspace-actions">
+          <button id="swaggerImportBtn" class="btn primary" type="button" aria-haspopup="dialog" aria-controls="swaggerImportModal">Import Swagger</button>
           <button id="importBtn" class="btn ghost" type="button">Import JSON / suite</button>
           <button id="templateBtn" class="btn ghost" type="button">Download template</button>
           <button id="exportBtn" class="btn ghost" type="button">Export JSON</button>
@@ -79,7 +80,9 @@
         Or import a full <code>engine.sh</code> suite JSON (<code>suites/*.json</code>) below to get its
         staged/sequential execution, variable capture between steps, and known-bug flags for free.
         Drag the <code>⠿</code> handle on a row to move it into a different group, or drag a group's
-        header to reorder groups — every row waits for the previous response, and groups run top to bottom.</p>
+        header to reorder groups. Use the arrow beside a group name to expand or collapse it, run or duplicate
+        one group from its header, or select several groups and run only that selection — every row waits for
+        the previous response, and selected groups still run top to bottom.</p>
       <section class="route-composer" aria-labelledby="routeComposerTitle">
         <div class="route-composer-head">
           <div class="route-composer-heading">
@@ -210,6 +213,57 @@ GET /admin/courses/queue?tab=PENDING"></textarea>
     </div>
   </div>
 
+  <div id="jsonImportChoiceModal" class="modal-backdrop" hidden>
+    <div class="modal import-choice-modal" role="dialog" aria-modal="true" aria-labelledby="jsonImportChoiceTitle" aria-describedby="jsonImportChoiceMessage">
+      <div class="modal-head import-choice-head">
+        <span class="import-choice-icon" aria-hidden="true">⇣</span>
+        <div>
+          <span class="guide-eyebrow">Existing endpoints found</span>
+          <h3 id="jsonImportChoiceTitle">How should this JSON be imported?</h3>
+        </div>
+      </div>
+      <p id="jsonImportChoiceMessage" class="modal-message"></p>
+      <div class="import-choice-options">
+        <span><strong>Add after current</strong><small>Keeps your workspace and adds the imported groups at the end.</small></span>
+        <span><strong>Replace current</strong><small>Removes the current endpoint groups and loads the imported file.</small></span>
+      </div>
+      <div class="modal-actions import-choice-actions">
+        <button id="jsonImportChoiceCancel" class="btn ghost" type="button">Cancel</button>
+        <button id="jsonImportChoiceReplace" class="btn danger" type="button">Replace current</button>
+        <button id="jsonImportChoiceAppend" class="btn primary" type="button">Add after current</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="endpointPathModal" class="modal-backdrop" hidden>
+    <div class="modal endpoint-path-modal" role="dialog" aria-modal="true" aria-labelledby="endpointPathTitle" aria-describedby="endpointPathHelp">
+      <div class="modal-head endpoint-path-head">
+        <div>
+          <span class="guide-eyebrow">Full endpoint path</span>
+          <h3 id="endpointPathTitle">View or edit endpoint</h3>
+        </div>
+        <span id="endpointPathMethod" class="endpoint-path-method">GET</span>
+      </div>
+      <div class="endpoint-path-content">
+        <div class="endpoint-path-label">
+          <label for="endpointPathInput">Path or absolute URL</label>
+          <span id="endpointPathCount">0 characters</span>
+        </div>
+        <textarea id="endpointPathInput" rows="6" wrap="soft" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="/api/v1/resource?filter=value"></textarea>
+        <p id="endpointPathHelp">Long paths wrap naturally here. Press <kbd>Ctrl</kbd>/<kbd>⌘</kbd> + <kbd>Enter</kbd> to save.</p>
+        <div class="endpoint-path-preview">
+          <span>Resolved request URL</span>
+          <code id="endpointPathPreview"></code>
+        </div>
+      </div>
+      <div class="modal-actions endpoint-path-actions">
+        <button id="endpointPathCancel" class="btn ghost" type="button">Cancel</button>
+        <button id="endpointPathCopy" class="btn ghost endpoint-path-copy" type="button">Copy path</button>
+        <button id="endpointPathSave" class="btn primary" type="button">Save path</button>
+      </div>
+    </div>
+  </div>
+
   <div id="guideModal" class="modal-backdrop" hidden>
     <div class="modal guide-modal" role="dialog" aria-modal="true" aria-labelledby="guideTitle" aria-describedby="guideIntro">
       <div class="guide-head">
@@ -227,7 +281,7 @@ GET /admin/courses/queue?tab=PENDING"></textarea>
         </li>
         <li>
           <span class="guide-step-number">2</span>
-          <div><strong>Get the JSON file</strong><span>In Workspace, press “Download template,” then add your tokens and endpoints before saving the file.</span></div>
+          <div><strong>Add your endpoints</strong><span>Import a Swagger URL, paste routes, or download the JSON template for a complete staged suite.</span></div>
         </li>
         <li>
           <span class="guide-step-number">3</span>
@@ -241,6 +295,50 @@ GET /admin/courses/queue?tab=PENDING"></textarea>
       <div class="modal-actions guide-actions">
         <button id="guideDone" class="btn primary" type="button">Got it</button>
       </div>
+    </div>
+  </div>
+
+  <div id="swaggerImportModal" class="modal-backdrop" hidden>
+    <div class="modal swagger-import-modal" role="dialog" aria-modal="true" aria-labelledby="swaggerImportTitle" aria-describedby="swaggerImportIntro">
+      <div class="swagger-import-head">
+        <div class="swagger-import-title-wrap">
+          <span class="swagger-import-icon" aria-hidden="true">⇣</span>
+          <div>
+            <span class="guide-eyebrow">OpenAPI import</span>
+            <h3 id="swaggerImportTitle">Import endpoints from Swagger</h3>
+          </div>
+        </div>
+        <button id="swaggerImportClose" class="guide-close" type="button" aria-label="Close Swagger import">×</button>
+      </div>
+      <form id="swaggerImportForm">
+        <p id="swaggerImportIntro" class="swagger-import-intro">Paste a Swagger UI page or a direct OpenAPI JSON/YAML URL. Devman API will discover the spec and create request-ready endpoint rows.</p>
+        <label class="field swagger-url-field" for="swaggerUrl">
+          <span>Swagger or OpenAPI URL</span>
+          <input id="swaggerUrl" type="url" inputmode="url" autocomplete="url" required placeholder="https://api.example.com/api/docs" />
+        </label>
+        <div class="swagger-import-options">
+          <div class="field">
+            <span>Workspace action</span>
+            <select id="swaggerImportMode">
+              <option value="replace" data-description="Clear existing groups and rebuild them from Swagger tags">Replace current endpoints</option>
+              <option value="append" data-description="Keep current work and skip duplicate method/path pairs">Append new endpoints</option>
+            </select>
+          </div>
+          <div class="field">
+            <span>Secured endpoint token</span>
+            <select id="swaggerAuthProfile"></select>
+          </div>
+        </div>
+        <label class="checkbox-line swagger-base-option">
+          <input id="swaggerSetBaseUrl" type="checkbox" checked />
+          <span>Use the server URL from the OpenAPI document as the Base URL</span>
+        </label>
+        <div id="swaggerImportFeedback" class="swagger-import-feedback" role="status" aria-live="polite">Supports OpenAPI 3.x, Swagger 2.0, JSON, YAML, and embedded Swagger UI documents.</div>
+        <div class="modal-actions swagger-import-actions">
+          <button id="swaggerImportCancel" class="btn ghost" type="button">Cancel</button>
+          <button id="swaggerImportSubmit" class="btn primary" type="submit">Import endpoints</button>
+        </div>
+      </form>
     </div>
   </div>
 

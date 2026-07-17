@@ -12,6 +12,7 @@
     "node": "24.x"
   },
   "dependencies": {
-    "jq-wasm": "3.0.0-jq-1.8.2"
+    "jq-wasm": "3.0.0-jq-1.8.2",
+    "yaml": "^2.8.1"
   }
 }
