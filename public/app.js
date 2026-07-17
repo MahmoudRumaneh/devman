@@ -4,6 +4,10 @@
   const STORAGE_KEY = 'apiTestStudio.v3';
   const THEME_KEY = 'apiTestStudio.theme';
   const VERBS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
+  const SAFE_RETRY_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+  const RETRYABLE_PROXY_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
+  const PROXY_MAX_ATTEMPTS = 3;
+  const PROXY_RETRY_DELAY_MS = 250;
   const ICONS = {
     copy: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M15 9V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h3"></path></svg>',
     check: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"></path></svg>',
@@ -1304,7 +1308,8 @@
     const title = document.createElement('strong');
     title.textContent = 'Response';
     const meta = document.createElement('span');
-    meta.textContent = `${r.status} · ${r.ms}ms`;
+    const attemptsLabel = r.attempts > 1 ? ` · ${r.attempts} attempts` : '';
+    meta.textContent = `${r.status} · ${r.ms}ms${attemptsLabel}`;
     head.appendChild(title);
     head.appendChild(meta);
 
@@ -1358,7 +1363,8 @@
       badge.textContent = 'skipped';
     } else if (r.state === 'pass') {
       badge.className = 'badge pass';
-      badge.textContent = `✓ ${r.status} · ${r.ms}ms`;
+      const retried = r.attempts > 1 ? ' ↻' : '';
+      badge.textContent = `✓ ${r.status} · ${r.ms}ms${retried}`;
     } else if (r.state === 'bug') {
       badge.className = 'badge bug';
       badge.textContent = `⚠ ${r.status} known`;
@@ -1435,33 +1441,97 @@
       .join('\n');
   }
 
+  function wait(milliseconds) {
+    return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+  }
+
+  function errorMessage(error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+
+  async function parseProxyResponse(response) {
+    const rawBody = await response.text();
+    if (!response.ok) {
+      const error = new Error(`Studio proxy returned HTTP ${response.status}${rawBody ? `: ${rawBody}` : ''}`);
+      error.retryable = RETRYABLE_PROXY_STATUSES.has(response.status);
+      throw error;
+    }
+
+    let output;
+    try {
+      output = JSON.parse(rawBody);
+    } catch {
+      const error = new Error('Studio proxy returned an invalid response');
+      error.retryable = true;
+      throw error;
+    }
+
+    if (!isRecord(output) || typeof output.status !== 'number' || typeof output.body !== 'string') {
+      const error = new Error('Studio proxy response is missing required fields');
+      error.retryable = true;
+      throw error;
+    }
+    return output;
+  }
+
+  async function callProxy(payload) {
+    const canRetry = SAFE_RETRY_METHODS.has(payload.method);
+    const maxAttempts = canRetry ? PROXY_MAX_ATTEMPTS : 1;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        const response = await fetch('/api/proxy', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const output = await parseProxyResponse(response);
+        const upstreamAttempts = Number.isInteger(output.attempts) && output.attempts > 0
+          ? output.attempts
+          : 1;
+        return { output, attempts: upstreamAttempts + attempt - 1 };
+      } catch (error) {
+        const isLastAttempt = attempt === maxAttempts;
+        if (isLastAttempt || error?.retryable === false) {
+          const methodNote = canRetry
+            ? ''
+            : ` ${payload.method} was not retried because repeating it could duplicate data.`;
+          const separator = errorMessage(error).endsWith('.') ? '' : '.';
+          const requestError = new Error(`${errorMessage(error)}${separator}${methodNote}`.trim());
+          requestError.attempts = attempt;
+          throw requestError;
+        }
+        await wait(PROXY_RETRY_DELAY_MS * (2 ** (attempt - 1)));
+      }
+    }
+
+    throw new Error('Studio proxy request failed');
+  }
+
   async function fireRequest(row) {
     const request = buildRequestSnapshot(row);
 
     try {
-      const resp = await fetch('/api/proxy', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          method: row.method,
-          url: request.url,
-          headers: request.headers,
-          body: request.body || null,
-        }),
+      const { output, attempts } = await callProxy({
+        method: row.method,
+        url: request.url,
+        headers: request.headers,
+        body: request.body || null,
       });
-      const out = await resp.json();
       return {
-        status: out.status,
-        ms: out.ms,
+        status: output.status,
+        ms: output.ms,
+        attempts,
         reqUrl: request.url,
         reqHeaders: request.headers,
         reqBody: request.body,
-        body: out.body,
+        body: output.body,
       };
     } catch (e) {
       return {
         status: 0,
         ms: 0,
+        attempts: Number.isInteger(e?.attempts) ? e.attempts : 1,
         reqUrl: request.url,
         reqHeaders: request.headers,
         reqBody: request.body,
@@ -1501,7 +1571,7 @@
         const r = await callJq('capture', filterRaw, fetched.body);
         if (r.ok && r.value) VARS[k] = r.value;
       }
-      row.result = { state: 'pass', status, ms: fetched.ms, reqUrl: fetched.reqUrl, reqHeaders: fetched.reqHeaders, reqBody: fetched.reqBody, respBody: fetched.body };
+      row.result = completedResult('pass', fetched);
       renderVarsPanel();
       return 'pass';
     }
@@ -1509,12 +1579,25 @@
     const softList = row.softFailIfContains || [];
     const softHit = softList.length > 0 && softList.every((needle) => fetched.body.includes(needle));
     if (softHit) {
-      row.result = { state: 'bug', status, ms: fetched.ms, reqUrl: fetched.reqUrl, reqHeaders: fetched.reqHeaders, reqBody: fetched.reqBody, respBody: fetched.body };
+      row.result = completedResult('bug', fetched);
       return 'bug';
     }
 
-    row.result = { state: status === 0 ? 'error' : 'fail', status, ms: fetched.ms, reqUrl: fetched.reqUrl, reqHeaders: fetched.reqHeaders, reqBody: fetched.reqBody, respBody: fetched.body };
+    row.result = completedResult(status === 0 ? 'error' : 'fail', fetched);
     return row.continueOnFail ? 'fail-continue' : 'hardfail';
+  }
+
+  function completedResult(resultState, fetched) {
+    return {
+      state: resultState,
+      status: fetched.status,
+      ms: fetched.ms,
+      attempts: fetched.attempts,
+      reqUrl: fetched.reqUrl,
+      reqHeaders: fetched.reqHeaders,
+      reqBody: fetched.reqBody,
+      respBody: fetched.body,
+    };
   }
 
   function groupByLane(rows) {
@@ -1618,7 +1701,8 @@
         lines.push('');
         if (row.note) lines.push(`_${row.note}_\n`);
         if (r && r.reqUrl) {
-          lines.push(`\`${row.method} ${r.reqUrl}\` — status: ${r.status}, ${r.ms}ms`);
+          const attempts = r.attempts > 1 ? `, ${r.attempts} attempts` : '';
+          lines.push(`\`${row.method} ${r.reqUrl}\` — status: ${r.status}, ${r.ms}ms${attempts}`);
           lines.push('');
           if (r.reqBody) {
             lines.push('**Request body**');

@@ -1,6 +1,7 @@
 'use strict';
 
 const { getErrorMessage, getJsonBody, sendJson } = require('../lib/api');
+const { fetchWithNetworkRetry } = require('../lib/fetch-retry');
 const { validateProxyUrl } = require('../lib/proxy-security');
 
 const METHODS_WITHOUT_BODY = new Set(['GET', 'HEAD']);
@@ -24,7 +25,7 @@ module.exports = async function proxy(request, response) {
 
     const target = await validateProxyUrl(typeof payload.url === 'string' ? payload.url : '');
     const started = Date.now();
-    const upstream = await fetch(target, {
+    const { response: upstream, attempts } = await fetchWithNetworkRetry(target, {
       method,
       headers,
       body: body !== undefined && !METHODS_WITHOUT_BODY.has(method) ? body : undefined,
@@ -40,6 +41,7 @@ module.exports = async function proxy(request, response) {
       headers: responseHeaders,
       body: responseBody,
       ms: Date.now() - started,
+      attempts,
     });
   } catch (error) {
     return sendJson(response, 200, {
@@ -47,6 +49,7 @@ module.exports = async function proxy(request, response) {
       headers: {},
       body: JSON.stringify({ error: getErrorMessage(error) }),
       ms: 0,
+      attempts: Number.isInteger(error?.attempts) ? error.attempts : 1,
     });
   }
 };

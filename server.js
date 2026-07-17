@@ -19,6 +19,7 @@ const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const { fetchWithNetworkRetry } = require('./lib/fetch-retry');
 
 const WEB_DIR = __dirname;
 const PUBLIC_DIR = path.join(WEB_DIR, 'public');
@@ -80,10 +81,11 @@ async function handleProxy(req, res) {
 
   const started = Date.now();
   try {
-    const resp = await fetch(url, {
+    const { response: resp, attempts } = await fetchWithNetworkRetry(url, {
       method,
       headers,
       body: bodyText != null && method !== 'GET' && method !== 'HEAD' ? bodyText : undefined,
+      signal: AbortSignal.timeout(25_000),
     });
     const text = await resp.text();
     const outHeaders = {};
@@ -93,6 +95,7 @@ async function handleProxy(req, res) {
       headers: outHeaders,
       body: text,
       ms: Date.now() - started,
+      attempts,
     });
   } catch (e) {
     return sendJson(res, 200, {
@@ -100,6 +103,7 @@ async function handleProxy(req, res) {
       headers: {},
       body: JSON.stringify({ error: String(e.message || e) }),
       ms: Date.now() - started,
+      attempts: Number.isInteger(e?.attempts) ? e.attempts : 1,
     });
   }
 }
