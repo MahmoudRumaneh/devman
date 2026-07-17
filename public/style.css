@@ -1132,11 +1132,6 @@ select:focus {
   font-size: 13px;
 }
 
-.token-card-meta span {
-  color: var(--text-muted);
-  font-size: 12px;
-}
-
 .token-card-meta code {
   width: max-content;
   max-width: 100%;

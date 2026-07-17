@@ -30,7 +30,7 @@
     { key: 'student', label: 'Student', varName: 'STUDENT_TOKEN', scope: 'UserRole.STUDENT', locked: true },
   ];
   const DEFAULT_TEMPLATE = {
-    base_url: 'http://localhost:3000/api/v1',
+    base_url: 'https://api.example.com/v1',
     tokens: Object.fromEntries(DEFAULT_TOKEN_PROFILES.map((profile) => [profile.varName, ''])),
     vars: {},
     steps: [
@@ -76,7 +76,7 @@
   const el = (id) => document.getElementById(id);
 
   const state = {
-    baseUrl: 'http://localhost:3000/api/v1',
+    baseUrl: 'https://api.example.com/v1',
     tenantId: '',
     sendTenantHeader: true,
     tokens: Object.fromEntries(DEFAULT_TOKEN_PROFILES.map((profile) => [profile.key, ''])),
@@ -327,12 +327,9 @@
       if (profile.locked) {
         const title = document.createElement('strong');
         title.textContent = profile.label;
-        const scope = document.createElement('span');
-        scope.textContent = profile.scope;
         const varName = document.createElement('code');
         varName.textContent = profile.varName;
         meta.appendChild(title);
-        meta.appendChild(scope);
         meta.appendChild(varName);
       } else {
         const labelInput = document.createElement('input');
