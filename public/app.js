@@ -18,6 +18,12 @@
   const JSON_IMPORT_ACTION = Object.freeze({ REPLACE: 'replace', APPEND: 'append' });
   const ROW_PANEL = Object.freeze({ NONE: '', BODY: 'body', HEADERS: 'headers', RESPONSE: 'response' });
   const ROW_PANEL_VALUES = new Set(Object.values(ROW_PANEL));
+  const BODY_MODE = Object.freeze({ RAW: 'raw', MULTIPART: 'multipart', BINARY: 'binary' });
+  const BODY_MODE_VALUES = new Set(Object.values(BODY_MODE));
+  const FORM_PART_KIND = Object.freeze({ TEXT: 'text', FILE: 'file' });
+  const FORM_PART_KIND_VALUES = new Set(Object.values(FORM_PART_KIND));
+  const TEXT_RESPONSE_PATTERN = /^(text\/|application\/(?:json|.+\+json|xml|.+\+xml|javascript|x-javascript|x-www-form-urlencoded|graphql|problem\+json|sql|yaml|x-yaml|toml|csv|ndjson))/i;
+  const MAX_RESPONSE_PREVIEW_CHARS = 1_000_000;
   const HEADER_NAME_PATTERN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
   const DEFAULT_CUSTOM_HEADER_NAME = 'X-Custom-Header';
   const GROUP_NAME_MAX_LENGTH = 80;
@@ -101,6 +107,7 @@
   let VARS = {};
   let tokensVisible = false;
   let runInProgress = false;
+  let activeRunController = null;
   let activeRunLaneId = null;
   const selectedLaneIds = new Set();
   const searchCollapsedLaneIds = new Set();
@@ -108,6 +115,9 @@
 
   let nextId = 1;
   const newRowId = () => `r${nextId++}`;
+  let nextFormPartId = 1;
+  const newFormPartId = () => `part-${Date.now().toString(36)}-${nextFormPartId++}`;
+  const selectedFiles = new Map();
   let nextLaneNum = 1;
   const newLaneId = (over = {}) => {
     let id;
@@ -129,6 +139,9 @@
       authVar: '',
       headers: {},
       body: '',
+      bodyMode: BODY_MODE.RAW,
+      formData: [],
+      binaryFile: null,
       expect: '',
       assert: [],
       capture: {},
@@ -140,11 +153,55 @@
       ...over,
     };
     row.expect = normalizeStatusExpectation(row.expect);
+    if (!BODY_MODE_VALUES.has(row.bodyMode)) row.bodyMode = BODY_MODE.RAW;
+    row.formData = normalizeFormData(row.formData);
+    row.binaryFile = normalizeFileMetadata(row.binaryFile);
     if (!ROW_PANEL_VALUES.has(row.activePanel)) row.activePanel = ROW_PANEL.NONE;
     if (row.expanded && row.activePanel === ROW_PANEL.NONE) row.activePanel = ROW_PANEL.BODY;
     if (row.activePanel === ROW_PANEL.RESPONSE && !row.result) row.activePanel = ROW_PANEL.NONE;
     delete row.expanded;
     return row;
+  }
+
+  function normalizeFileMetadata(value) {
+    if (!isRecord(value) || typeof value.name !== 'string') return null;
+    return {
+      name: value.name,
+      type: typeof value.type === 'string' ? value.type : '',
+      size: Number.isFinite(value.size) && value.size >= 0 ? value.size : 0,
+    };
+  }
+
+  function normalizeFormData(value) {
+    if (!Array.isArray(value)) return [];
+    return value.filter(isRecord).map((part) => ({
+      id: typeof part.id === 'string' && part.id ? part.id : newFormPartId(),
+      name: typeof part.name === 'string' ? part.name : '',
+      kind: FORM_PART_KIND_VALUES.has(part.kind) ? part.kind : FORM_PART_KIND.TEXT,
+      value: typeof part.value === 'string' ? part.value : '',
+      file: normalizeFileMetadata(part.file),
+    }));
+  }
+
+  function selectedFileKey(rowId, partId = 'binary') {
+    return `${rowId}:${partId}`;
+  }
+
+  function getSelectedFile(row, partId = 'binary') {
+    return selectedFiles.get(selectedFileKey(row.id, partId)) || null;
+  }
+
+  function setSelectedFile(row, file, partId = 'binary') {
+    const key = selectedFileKey(row.id, partId);
+    if (file) selectedFiles.set(key, file);
+    else selectedFiles.delete(key);
+  }
+
+  function clearSelectedFiles(row) {
+    const prefix = `${row.id}:`;
+    [...selectedFiles.keys()].forEach((key) => {
+      if (key.startsWith(prefix)) selectedFiles.delete(key);
+    });
   }
 
   function lastLaneId() {
@@ -1597,12 +1654,19 @@
     const clone = typeof structuredClone === 'function'
       ? structuredClone(persistedRow)
       : JSON.parse(JSON.stringify(persistedRow));
-    return emptyRow({
+    const clonedRow = emptyRow({
       ...clone,
       laneId,
       result: null,
       activePanel: ROW_PANEL.NONE,
     });
+    const binaryFile = getSelectedFile(row);
+    if (binaryFile) setSelectedFile(clonedRow, binaryFile);
+    row.formData.forEach((part) => {
+      const file = getSelectedFile(row, part.id);
+      if (file) setSelectedFile(clonedRow, file, part.id);
+    });
+    return clonedRow;
   }
 
   function duplicateLane(laneId) {
@@ -1991,6 +2055,7 @@
           });
           if (!confirmed) return;
         }
+        allLaneRows.forEach(clearSelectedFiles);
         state.laneOrder = state.laneOrder.filter((id) => id !== laneId);
         state.rows = state.rows.filter((row) => row.laneId !== laneId);
         delete state.laneMeta[laneId];
@@ -2038,6 +2103,12 @@
 
   function buildAdvancedChips(row) {
     const bits = [];
+    if (row.bodyMode === BODY_MODE.MULTIPART) {
+      const fileCount = row.formData.filter((part) => part.kind === FORM_PART_KIND.FILE).length;
+      bits.push(`multipart · ${row.formData.length} field${row.formData.length === 1 ? '' : 's'}${fileCount ? ` · ${fileCount} file${fileCount === 1 ? '' : 's'}` : ''}`);
+    } else if (row.bodyMode === BODY_MODE.BINARY) {
+      bits.push(`binary file${row.binaryFile ? ` · ${row.binaryFile.name}` : ' · not selected'}`);
+    }
     if (row.assert && row.assert.length) bits.push(`${row.assert.length} assert${row.assert.length > 1 ? 's' : ''}`);
     if (row.capture && Object.keys(row.capture).length) bits.push(`captures: ${Object.keys(row.capture).join(', ')}`);
     if (row.softFailIfContains && row.softFailIfContains.length) bits.push(`known-bug marker: ${row.softFailIfContains.join(', ')}`);
@@ -2062,6 +2133,9 @@
       row.expect,
       row.note,
       row.body,
+      row.bodyMode,
+      JSON.stringify(row.formData || []),
+      row.binaryFile?.name,
       JSON.stringify(row.headers || {}),
       JSON.stringify(row.capture || {}),
       (row.assert || []).join(' '),
@@ -2141,10 +2215,150 @@
     if (row.authVar && state.sendTenantHeader && !hasHeaderName(entries, 'x-tenant-id')) {
       managed.push('x-tenant-id when TENANT_ID is available');
     }
-    if (String(row.body || '').trim() && !hasHeaderName(entries, 'Content-Type')) {
+    if (row.bodyMode === BODY_MODE.MULTIPART && row.formData.length) {
+      managed.push('Content-Type: multipart/form-data with a generated boundary');
+    } else if (row.bodyMode === BODY_MODE.BINARY && row.binaryFile && !hasHeaderName(entries, 'Content-Type')) {
+      managed.push(`Content-Type: ${row.binaryFile.type || 'application/octet-stream'}`);
+    } else if (row.bodyMode === BODY_MODE.RAW && String(row.body || '').trim() && !hasHeaderName(entries, 'Content-Type')) {
       managed.push('Content-Type: application/json');
     }
     return managed;
+  }
+
+  function formatByteSize(bytes) {
+    if (!Number.isFinite(bytes) || bytes < 1) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB'];
+    const unitIndex = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+    const value = bytes / (1024 ** unitIndex);
+    return `${value.toFixed(value >= 10 || unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
+  }
+
+  function fileMetadata(file) {
+    return { name: file.name, type: file.type, size: file.size };
+  }
+
+  function createFilePicker(row, partId, metadata, onFileSelected) {
+    const picker = document.createElement('label');
+    picker.className = 'request-file-picker';
+    picker.tabIndex = 0;
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.className = 'request-file-input';
+    const activeFile = getSelectedFile(row, partId);
+    const title = document.createElement('strong');
+    const detail = document.createElement('span');
+    if (activeFile) {
+      picker.classList.add('has-file');
+      title.textContent = activeFile.name;
+      detail.textContent = `${formatByteSize(activeFile.size)} · ${activeFile.type || 'Unknown file type'} · Ready to upload`;
+    } else if (metadata) {
+      picker.classList.add('needs-file');
+      title.textContent = metadata.name;
+      detail.textContent = `${formatByteSize(metadata.size)} · Select this file again before running`;
+    } else {
+      title.textContent = 'Choose a file or drop it here';
+      detail.textContent = 'Any file type is supported';
+    }
+    const choose = document.createElement('span');
+    choose.className = 'file-picker-action';
+    choose.textContent = activeFile ? 'Replace' : 'Browse';
+    picker.append(input, title, detail, choose);
+
+    const selectFile = (file) => {
+      if (!(file instanceof File)) return;
+      setSelectedFile(row, file, partId);
+      onFileSelected(fileMetadata(file));
+      renderRows();
+      save();
+    };
+    input.addEventListener('change', () => selectFile(input.files?.[0]));
+    picker.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        input.click();
+      }
+    });
+    ['dragenter', 'dragover'].forEach((eventName) => picker.addEventListener(eventName, (event) => {
+      event.preventDefault();
+      picker.classList.add('is-dragging');
+    }));
+    ['dragleave', 'drop'].forEach((eventName) => picker.addEventListener(eventName, (event) => {
+      event.preventDefault();
+      picker.classList.remove('is-dragging');
+    }));
+    picker.addEventListener('drop', (event) => selectFile(event.dataTransfer?.files?.[0]));
+    return picker;
+  }
+
+  function buildMultipartEditor(row) {
+    const editor = document.createElement('div');
+    editor.className = 'multipart-editor';
+
+    if (!row.formData.length) {
+      const empty = document.createElement('div');
+      empty.className = 'multipart-empty';
+      empty.innerHTML = '<strong>No form fields yet</strong><span>Add text values and one or more files in the order this API expects.</span>';
+      editor.appendChild(empty);
+    }
+
+    row.formData.forEach((part, index) => {
+      const partRow = document.createElement('div');
+      partRow.className = 'multipart-row';
+      const nameInput = document.createElement('input');
+      nameInput.type = 'text';
+      nameInput.placeholder = 'Field name';
+      nameInput.value = part.name;
+      nameInput.setAttribute('aria-label', `Form field ${index + 1} name`);
+      nameInput.addEventListener('input', () => { part.name = nameInput.value; saveDebounced(); });
+
+      const kindSelect = document.createElement('select');
+      kindSelect.setAttribute('aria-label', `Form field ${index + 1} type`);
+      [{ value: FORM_PART_KIND.TEXT, label: 'Text' }, { value: FORM_PART_KIND.FILE, label: 'File' }]
+        .forEach(({ value, label }) => {
+          const option = document.createElement('option');
+          option.value = value;
+          option.textContent = label;
+          option.selected = part.kind === value;
+          kindSelect.appendChild(option);
+        });
+      kindSelect.addEventListener('change', () => {
+        if (part.kind === FORM_PART_KIND.FILE) setSelectedFile(row, null, part.id);
+        part.kind = kindSelect.value;
+        part.file = null;
+        part.value = '';
+        renderRows();
+        save();
+      });
+
+      const valueWrap = document.createElement('div');
+      valueWrap.className = 'multipart-value';
+      if (part.kind === FORM_PART_KIND.FILE) {
+        valueWrap.appendChild(createFilePicker(row, part.id, part.file, (metadata) => { part.file = metadata; }));
+      } else {
+        const valueInput = document.createElement('input');
+        valueInput.type = 'text';
+        valueInput.placeholder = 'Value · ${VARS} supported';
+        valueInput.value = part.value;
+        valueInput.setAttribute('aria-label', `Form field ${index + 1} value`);
+        valueInput.addEventListener('input', () => { part.value = valueInput.value; saveDebounced(); });
+        valueWrap.appendChild(valueInput);
+      }
+
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'row-remove multipart-remove';
+      remove.textContent = '×';
+      remove.title = 'Remove form field';
+      remove.addEventListener('click', () => {
+        setSelectedFile(row, null, part.id);
+        row.formData = row.formData.filter((candidate) => candidate.id !== part.id);
+        renderRows();
+        save();
+      });
+      partRow.append(nameInput, kindSelect, valueWrap, remove);
+      editor.appendChild(partRow);
+    });
+    return editor;
   }
 
   function findHeadersPanel(rowId) {
@@ -2506,8 +2720,8 @@
     actionsCell.className = 'actions-cell';
     const bodyBtn = document.createElement('button');
     bodyBtn.className = 'btn ghost small row-action endpoint-body-btn';
-    const hasInspectableResult =
-      row.result && row.result.state !== 'pending' && row.result.state !== 'skipped';
+    const hasInspectableResult = row.result && row.result.state !== 'skipped' &&
+      (row.result.state !== 'pending' || Number.isInteger(row.result.status));
     const bodyIsOpen = row.activePanel === ROW_PANEL.BODY;
     bodyBtn.textContent = bodyIsOpen ? 'Hide' : 'Body';
     bodyBtn.title = bodyIsOpen ? 'Hide request body' : 'Show request body';
@@ -2547,6 +2761,7 @@
     removeBtn.textContent = '×';
     removeBtn.title = 'Remove row';
     removeBtn.addEventListener('click', () => {
+      clearSelectedFiles(row);
       state.rows = state.rows.filter((r) => r.id !== row.id);
       renderRows();
       save();
@@ -2587,8 +2802,29 @@
         const bodyPanel = document.createElement('section');
         bodyPanel.className = 'request-panel request-body-panel';
         const bodyHead = document.createElement('div');
-        bodyHead.className = 'panel-head';
-        bodyHead.innerHTML = '<strong>Request body</strong><span>JSON with ${VARS} supported</span>';
+        bodyHead.className = 'panel-head body-panel-head';
+        const bodyTitle = document.createElement('div');
+        bodyTitle.className = 'body-panel-title';
+        bodyTitle.innerHTML = '<strong>Request body</strong><span>Variables such as ${VARS} are supported</span>';
+        const modeSelect = document.createElement('select');
+        modeSelect.className = 'body-mode-select';
+        modeSelect.setAttribute('aria-label', 'Request body type');
+        [
+          { value: BODY_MODE.RAW, label: 'Raw / JSON' },
+          { value: BODY_MODE.MULTIPART, label: 'Multipart form' },
+          { value: BODY_MODE.BINARY, label: 'Binary file' },
+        ].forEach(({ value, label }) => {
+          const option = document.createElement('option');
+          option.value = value;
+          option.textContent = label;
+          option.selected = row.bodyMode === value;
+          modeSelect.appendChild(option);
+        });
+        modeSelect.addEventListener('change', () => {
+          row.bodyMode = modeSelect.value;
+          renderRows();
+          save();
+        });
         const bodyActions = document.createElement('div');
         bodyActions.className = 'panel-actions';
 
@@ -2618,11 +2854,60 @@
           save();
         });
 
-        bodyActions.appendChild(formatBtn);
-        bodyActions.appendChild(clearBodyBtn);
+        if (row.bodyMode === BODY_MODE.RAW) {
+          bodyActions.appendChild(formatBtn);
+          bodyActions.appendChild(clearBodyBtn);
+        } else if (row.bodyMode === BODY_MODE.MULTIPART) {
+          const addTextButton = document.createElement('button');
+          addTextButton.className = 'btn ghost small';
+          addTextButton.type = 'button';
+          addTextButton.textContent = '+ Text';
+          addTextButton.addEventListener('click', () => {
+            row.formData.push({ id: newFormPartId(), name: '', kind: FORM_PART_KIND.TEXT, value: '', file: null });
+            renderRows();
+            save();
+          });
+          const addFileButton = document.createElement('button');
+          addFileButton.className = 'btn primary small';
+          addFileButton.type = 'button';
+          addFileButton.textContent = '+ File';
+          addFileButton.addEventListener('click', () => {
+            row.formData.push({ id: newFormPartId(), name: '', kind: FORM_PART_KIND.FILE, value: '', file: null });
+            renderRows();
+            save();
+          });
+          bodyActions.append(addTextButton, addFileButton);
+        } else if (row.binaryFile) {
+          const clearFileButton = document.createElement('button');
+          clearFileButton.className = 'btn ghost small';
+          clearFileButton.type = 'button';
+          clearFileButton.textContent = 'Clear file';
+          clearFileButton.addEventListener('click', () => {
+            setSelectedFile(row, null);
+            row.binaryFile = null;
+            renderRows();
+            save();
+          });
+          bodyActions.appendChild(clearFileButton);
+        }
+        bodyHead.append(bodyTitle, modeSelect);
         bodyHead.appendChild(bodyActions);
         bodyPanel.appendChild(bodyHead);
-        bodyPanel.appendChild(bodyTa);
+        if (row.bodyMode === BODY_MODE.RAW) {
+          bodyPanel.appendChild(bodyTa);
+        } else if (row.bodyMode === BODY_MODE.MULTIPART) {
+          bodyPanel.appendChild(buildMultipartEditor(row));
+        } else {
+          const binaryEditor = document.createElement('div');
+          binaryEditor.className = 'binary-editor';
+          binaryEditor.appendChild(createFilePicker(row, 'binary', row.binaryFile, (metadata) => {
+            row.binaryFile = metadata;
+          }));
+          const help = document.createElement('p');
+          help.textContent = 'The selected file becomes the entire request body. Its MIME type is used automatically unless you set Content-Type in Headers.';
+          binaryEditor.appendChild(help);
+          bodyPanel.appendChild(binaryEditor);
+        }
         extra.appendChild(bodyPanel);
       }
 
@@ -2647,18 +2932,31 @@
     title.textContent = 'Response';
     const meta = document.createElement('span');
     const attemptsLabel = r.attempts > 1 ? ` · ${r.attempts} attempts` : '';
-    meta.textContent = `${r.status} · ${r.ms}ms${attemptsLabel}`;
+    meta.textContent = r.state === 'pending'
+      ? `${r.status} · streaming ${formatByteSize(r.responseBytes || r.bytesReceived || 0)}`
+      : `${r.status} · ${r.ms}ms${attemptsLabel}`;
     head.appendChild(title);
     head.appendChild(meta);
 
     const actions = document.createElement('div');
     actions.className = 'panel-actions';
-    actions.appendChild(createCopyIconButton({
-      label: 'Copy response',
-      copiedMessage: 'Response copied',
-      getText: () => formatBody(r.respBody),
-      variant: 'response-copy-btn',
-    }));
+    if (r.responseIsText !== false) {
+      actions.appendChild(createCopyIconButton({
+        label: 'Copy response',
+        copiedMessage: 'Response copied',
+        getText: () => formatBody(r.respBody),
+        variant: 'response-copy-btn',
+      }));
+    }
+    if (r.responseBlob instanceof Blob) {
+      const downloadButton = document.createElement('button');
+      downloadButton.className = 'btn primary small response-download-btn';
+      downloadButton.type = 'button';
+      downloadButton.textContent = '↓ Download';
+      downloadButton.title = `Download ${r.responseFileName || 'response file'}`;
+      downloadButton.addEventListener('click', () => downloadResponseFile(r));
+      actions.appendChild(downloadButton);
+    }
     head.appendChild(actions);
     panel.appendChild(head);
 
@@ -2674,11 +2972,46 @@
       panel.appendChild(sent);
     }
 
-    const pre = document.createElement('pre');
-    pre.className = 'response-body';
-    pre.textContent = formatBody(r.respBody);
-    panel.appendChild(pre);
+    if (r.responseBlob instanceof Blob || r.responseType) {
+      const fileMeta = document.createElement('div');
+      fileMeta.className = 'response-file-meta';
+      fileMeta.innerHTML = `<strong>${escapeHtml(r.responseFileName || 'Response')}</strong><span>${escapeHtml(r.responseType || 'application/octet-stream')} · ${formatByteSize(r.responseBytes || r.responseBlob?.size || 0)}</span>`;
+      panel.appendChild(fileMeta);
+    }
+
+    if (r.responseIsText === false) {
+      const binary = document.createElement('div');
+      binary.className = 'binary-response';
+      binary.innerHTML = r.state === 'pending'
+        ? '<span aria-hidden="true">↓</span><strong>Streaming binary response…</strong><p>Bytes are arriving now. Stop the run whenever you want to keep a partial download.</p>'
+        : '<span aria-hidden="true">↧</span><strong>Binary response ready</strong><p>Preview is disabled to protect the file contents. Download it in its original format.</p>';
+      panel.appendChild(binary);
+    } else {
+      const pre = document.createElement('pre');
+      pre.className = 'response-body';
+      pre.textContent = formatBody(r.respBody);
+      panel.appendChild(pre);
+      if (r.responseTruncated) {
+        const notice = document.createElement('div');
+        notice.className = 'response-preview-notice';
+        notice.textContent = 'Preview limited to 1 MB for performance. The download contains the complete response.';
+        panel.appendChild(notice);
+      }
+    }
     return panel;
+  }
+
+  function downloadResponseFile(result) {
+    if (!(result.responseBlob instanceof Blob)) return;
+    const url = URL.createObjectURL(result.responseBlob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = result.responseFileName || 'response.bin';
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    toast(`Downloaded ${anchor.download}`);
   }
 
   function formatBody(raw) {
@@ -2695,7 +3028,10 @@
       badge.textContent = '—';
     } else if (r.state === 'pending') {
       badge.className = 'badge pending';
-      badge.textContent = '…';
+      const progress = r.bytesReceived
+        ? `↓ ${formatByteSize(r.bytesReceived)}${r.contentLength ? ` / ${formatByteSize(r.contentLength)}` : ''}`
+        : 'Connecting…';
+      badge.textContent = progress;
     } else if (r.state === 'skipped') {
       badge.className = 'badge idle';
       badge.textContent = 'skipped';
@@ -2715,7 +3051,8 @@
     }
     container.appendChild(badge);
 
-    const hasInspectableResponse = r && r.state !== 'pending' && r.state !== 'skipped';
+    const hasInspectableResponse = r && r.state !== 'skipped' &&
+      (r.state !== 'pending' || Number.isInteger(r.status));
     if (hasInspectableResponse) {
       const responseToggle = document.createElement('button');
       responseToggle.className = 'result-toggle response-panel-toggle';
@@ -2739,7 +3076,7 @@
   }
 
   function updateRowResult(row) {
-    if (row.activePanel !== ROW_PANEL.NONE) {
+    if (row.activePanel !== ROW_PANEL.NONE && row.result?.state !== 'pending') {
       renderRows();
       return;
     }
@@ -2749,6 +3086,14 @@
     const resultCell = rowEl.querySelector('.result-cell');
     resultCell.innerHTML = '';
     resultCell.appendChild(buildResultBadge(row));
+    const responseBody = rowEl.querySelector('.response-body');
+    if (responseBody && row.result?.state === 'pending') {
+      responseBody.textContent = row.result.respBody || '';
+    }
+    const responseMeta = rowEl.querySelector('.response-file-meta span');
+    if (responseMeta && row.result?.state === 'pending') {
+      responseMeta.textContent = `${row.result.responseType || 'application/octet-stream'} · ${formatByteSize(row.result.responseBytes || 0)}`;
+    }
   }
 
   function updateSummary() {
@@ -2777,6 +3122,12 @@
     return Object.keys(headers).some((headerName) => headerName.toLowerCase() === name.toLowerCase());
   }
 
+  function removeRequestHeader(headers, name) {
+    const existingName = Object.keys(headers)
+      .find((headerName) => headerName.toLowerCase() === name.toLowerCase());
+    if (existingName) delete headers[existingName];
+  }
+
   function buildRequestSnapshot(row) {
     const url = joinUrl(state.baseUrl, subst(row.path.trim()));
     const headers = {};
@@ -2786,11 +3137,14 @@
     for (const [header, value] of customHeaderEntries(row)) {
       assignRequestHeader(headers, header, subst(value));
     }
+    if (row.bodyMode === BODY_MODE.MULTIPART) removeRequestHeader(headers, 'Content-Type');
     if (!requestHasHeader(headers, 'x-tenant-id') && row.authVar && state.sendTenantHeader && VARS.TENANT_ID) {
       assignRequestHeader(headers, 'x-tenant-id', VARS.TENANT_ID);
     }
-    const body = subst(row.body.trim());
-    if (body && !requestHasHeader(headers, 'Content-Type')) {
+    const body = row.bodyMode === BODY_MODE.RAW ? subst(row.body.trim()) : '';
+    if (row.bodyMode === BODY_MODE.BINARY && row.binaryFile && !requestHasHeader(headers, 'Content-Type')) {
+      assignRequestHeader(headers, 'Content-Type', row.binaryFile.type || 'application/octet-stream');
+    } else if (body && !requestHasHeader(headers, 'Content-Type')) {
       assignRequestHeader(headers, 'Content-Type', 'application/json');
     }
     return { url, headers, body };
@@ -2809,7 +3163,19 @@
     for (const [header, value] of Object.entries(request.headers)) {
       lines.push(`  --header ${shellQuote(`${header}: ${value}`)}`);
     }
-    if (request.body) lines.push(`  --data-raw ${shellQuote(request.body)}`);
+    if (row.bodyMode === BODY_MODE.MULTIPART) {
+      row.formData.forEach((part) => {
+        if (!part.name) return;
+        const value = part.kind === FORM_PART_KIND.FILE
+          ? `@${getSelectedFile(row, part.id)?.name || part.file?.name || 'path/to/file'}`
+          : subst(part.value);
+        lines.push(`  --form ${shellQuote(`${part.name}=${value}`)}`);
+      });
+    } else if (row.bodyMode === BODY_MODE.BINARY) {
+      lines.push(`  --data-binary ${shellQuote(`@${getSelectedFile(row)?.name || row.binaryFile?.name || 'path/to/file'}`)}`);
+    } else if (request.body) {
+      lines.push(`  --data-raw ${shellQuote(request.body)}`);
+    }
     return lines
       .map((line, index) => (index < lines.length - 1 ? `${line} \\` : line))
       .join('\n');
@@ -2823,48 +3189,190 @@
     return error instanceof Error ? error.message : String(error);
   }
 
-  async function parseProxyResponse(response) {
-    const rawBody = await response.text();
-    if (!response.ok) {
-      const error = new Error(`Devman API proxy returned HTTP ${response.status}${rawBody ? `: ${rawBody}` : ''}`);
-      error.retryable = RETRYABLE_PROXY_STATUSES.has(response.status);
-      throw error;
+  function bytesToBase64(bytes) {
+    let binary = '';
+    const chunkSize = 0x8000;
+    for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+      binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
     }
-
-    let output;
-    try {
-      output = JSON.parse(rawBody);
-    } catch {
-      const error = new Error('Devman API proxy returned an invalid response');
-      error.retryable = true;
-      throw error;
-    }
-
-    if (!isRecord(output) || typeof output.status !== 'number' || typeof output.body !== 'string') {
-      const error = new Error('Devman API proxy response is missing required fields');
-      error.retryable = true;
-      throw error;
-    }
-    return output;
+    return btoa(binary);
   }
 
-  async function callProxy(payload) {
+  async function fileToBase64(file) {
+    return bytesToBase64(new Uint8Array(await file.arrayBuffer()));
+  }
+
+  function requestBodySummary(row, request) {
+    if (row.bodyMode === BODY_MODE.MULTIPART) {
+      return row.formData.map((part) => part.kind === FORM_PART_KIND.FILE
+        ? `${part.name || '(unnamed)'}=@${getSelectedFile(row, part.id)?.name || part.file?.name || '(file not selected)'}`
+        : `${part.name || '(unnamed)'}=${subst(part.value)}`).join('\n');
+    }
+    if (row.bodyMode === BODY_MODE.BINARY) {
+      return `@${getSelectedFile(row)?.name || row.binaryFile?.name || '(file not selected)'}`;
+    }
+    return request.body;
+  }
+
+  async function buildProxyPayload(row, request) {
+    const payload = { method: row.method, url: request.url, headers: request.headers, bodyKind: 'text', body: request.body };
+    if (row.bodyMode === BODY_MODE.BINARY) {
+      const file = getSelectedFile(row);
+      if (!file) throw new Error('Select the binary request file before running this endpoint');
+      payload.bodyKind = 'binary';
+      payload.body = await fileToBase64(file);
+    } else if (row.bodyMode === BODY_MODE.MULTIPART) {
+      if (!row.formData.length) throw new Error('Add at least one multipart form field before running this endpoint');
+      payload.bodyKind = 'multipart';
+      payload.parts = [];
+      for (const part of row.formData) {
+        if (!part.name.trim()) throw new Error('Every multipart form field needs a name');
+        if (part.kind === FORM_PART_KIND.FILE) {
+          const file = getSelectedFile(row, part.id);
+          if (!file) throw new Error(`Select a file for the “${part.name}” field before running this endpoint`);
+          payload.parts.push({
+            kind: 'file',
+            name: part.name,
+            fileName: file.name,
+            type: file.type,
+            data: await fileToBase64(file),
+          });
+        } else {
+          payload.parts.push({ kind: 'text', name: part.name, value: subst(part.value) });
+        }
+      }
+    }
+    return payload;
+  }
+
+  function isTextResponse(contentType, contentDisposition) {
+    if (TEXT_RESPONSE_PATTERN.test(contentType)) return true;
+    if (/\battachment\b/i.test(contentDisposition)) return false;
+    return !contentType || /^(application\/octet-stream|audio\/|font\/|image\/|video\/|model\/)/i.test(contentType) === false;
+  }
+
+  function responseFileName(contentDisposition, requestUrl, contentType) {
+    const safeName = (value) => String(value || '')
+      .split(/[\\/]/).pop()
+      .replace(/[\u0000-\u001f\u007f]/g, '')
+      .trim();
+    const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
+    const plainMatch = contentDisposition.match(/filename="([^"]+)"|filename=([^;]+)/i);
+    const encodedName = utf8Match?.[1];
+    if (encodedName) {
+      let decodedName;
+      try { decodedName = safeName(decodeURIComponent(encodedName)); } catch (_) { decodedName = safeName(encodedName); }
+      if (decodedName) return decodedName;
+    }
+    const declaredName = safeName(plainMatch?.[1] || plainMatch?.[2]);
+    if (declaredName) return declaredName;
+    try {
+      const pathName = new URL(requestUrl).pathname.split('/').filter(Boolean).pop();
+      if (pathName && pathName.includes('.')) return safeName(decodeURIComponent(pathName));
+    } catch (_) { /* Use the safe fallback below. */ }
+    const subtype = contentType.split(';')[0].split('/')[1]?.replace(/^x-/, '').replace(/[^a-z0-9.+-]/gi, '');
+    return `response-${new Date().toISOString().replace(/[:.]/g, '-')}.${subtype || 'bin'}`;
+  }
+
+  async function parseProxyError(response) {
+    const raw = await response.text();
+    try {
+      const parsed = JSON.parse(raw);
+      if (isRecord(parsed) && typeof parsed.error === 'string') return parsed.error;
+    } catch (_) { /* Show the raw proxy error below. */ }
+    return raw || `Proxy returned HTTP ${response.status}`;
+  }
+
+  async function callProxy(row, payload) {
     const canRetry = SAFE_RETRY_METHODS.has(payload.method);
     const maxAttempts = canRetry ? PROXY_MAX_ATTEMPTS : 1;
 
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       try {
-        const response = await fetch('/api/proxy', {
+        const started = performance.now();
+        const response = await fetch('/api/proxy-stream', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
+          signal: activeRunController?.signal,
         });
-        const output = await parseProxyResponse(response);
-        const upstreamAttempts = Number.isInteger(output.attempts) && output.attempts > 0
-          ? output.attempts
-          : 1;
-        return { output, attempts: upstreamAttempts + attempt - 1 };
+        if (response.headers.get('x-devman-proxy') !== 'upstream') {
+          const error = new Error(await parseProxyError(response));
+          error.retryable = RETRYABLE_PROXY_STATUSES.has(response.status);
+          throw error;
+        }
+
+        const contentType = response.headers.get('content-type') || '';
+        const contentDisposition = response.headers.get('content-disposition') || '';
+        const contentLength = Number(response.headers.get('x-devman-content-length')) || 0;
+        const textResponse = isTextResponse(contentType, contentDisposition);
+        const upstreamStatus = Number(response.headers.get('x-devman-upstream-status')) || response.status;
+        const fileName = responseFileName(contentDisposition, payload.url, contentType);
+        const decoder = textResponse ? new TextDecoder() : null;
+        const chunks = [];
+        let body = '';
+        let bytesReceived = 0;
+        let lastProgressUpdate = 0;
+        let cancelled = false;
+        Object.assign(row.result, {
+          status: upstreamStatus,
+          reqUrl: payload.url,
+          respBody: '',
+          responseBytes: 0,
+          responseType: contentType || 'application/octet-stream',
+          responseFileName: fileName,
+          responseIsText: textResponse,
+        });
+        const reader = response.body?.getReader();
+        if (reader) {
+          try {
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              chunks.push(value);
+              bytesReceived += value.byteLength;
+              if (decoder && body.length < MAX_RESPONSE_PREVIEW_CHARS) {
+                body += decoder.decode(value, { stream: true }).slice(0, MAX_RESPONSE_PREVIEW_CHARS - body.length);
+              }
+              if (performance.now() - lastProgressUpdate > 120) {
+                Object.assign(row.result, {
+                  bytesReceived,
+                  contentLength,
+                  responseBytes: bytesReceived,
+                  respBody: body,
+                });
+                updateRowResult(row);
+                lastProgressUpdate = performance.now();
+              }
+            }
+          } catch (error) {
+            if (activeRunController?.signal.aborted) cancelled = true;
+            else throw error;
+          }
+        }
+        if (decoder && body.length < MAX_RESPONSE_PREVIEW_CHARS) body += decoder.decode();
+        cancelled = cancelled || activeRunController?.signal.aborted === true;
+        const blob = new Blob(chunks, { type: contentType || 'application/octet-stream' });
+        const upstreamAttempts = Number(response.headers.get('x-devman-attempts')) || 1;
+        return {
+          status: upstreamStatus,
+          ms: Math.round(performance.now() - started),
+          attempts: upstreamAttempts + attempt - 1,
+          body,
+          responseBlob: blob,
+          responseBytes: bytesReceived,
+          responseType: contentType || 'application/octet-stream',
+          responseFileName: fileName,
+          responseIsText: textResponse,
+          responseTruncated: textResponse && body.length >= MAX_RESPONSE_PREVIEW_CHARS,
+          cancelled,
+        };
       } catch (error) {
+        if (activeRunController?.signal.aborted) {
+          const stoppedError = new Error('Run stopped by user');
+          stoppedError.attempts = attempt;
+          throw stoppedError;
+        }
         const isLastAttempt = attempt === maxAttempts;
         if (isLastAttempt || error?.retryable === false) {
           const methodNote = canRetry
@@ -2886,20 +3394,23 @@
     const request = buildRequestSnapshot(row);
 
     try {
-      const { output, attempts } = await callProxy({
-        method: row.method,
-        url: request.url,
-        headers: request.headers,
-        body: request.body || null,
-      });
+      const payload = await buildProxyPayload(row, request);
+      const output = await callProxy(row, payload);
       return {
         status: output.status,
         ms: output.ms,
-        attempts,
+        attempts: output.attempts,
         reqUrl: request.url,
         reqHeaders: request.headers,
-        reqBody: request.body,
+        reqBody: requestBodySummary(row, request),
         body: output.body,
+        responseBlob: output.responseBlob,
+        responseBytes: output.responseBytes,
+        responseType: output.responseType,
+        responseFileName: output.responseFileName,
+        responseIsText: output.responseIsText,
+        responseTruncated: output.responseTruncated,
+        cancelled: output.cancelled,
       };
     } catch (e) {
       return {
@@ -2929,6 +3440,10 @@
 
   async function evaluateAndCapture(row, fetched) {
     const status = fetched.status;
+    if (fetched.cancelled) {
+      row.result = completedResult('error', fetched);
+      return 'hardfail';
+    }
     const expectOk = statusMatches(status, row.expect);
 
     let assertOk = true;
@@ -2971,6 +3486,12 @@
       reqHeaders: fetched.reqHeaders,
       reqBody: fetched.reqBody,
       respBody: fetched.body,
+      responseBlob: fetched.responseBlob,
+      responseBytes: fetched.responseBytes,
+      responseType: fetched.responseType,
+      responseFileName: fetched.responseFileName,
+      responseIsText: fetched.responseIsText,
+      responseTruncated: fetched.responseTruncated,
     };
   }
 
@@ -2990,8 +3511,10 @@
     };
     const runAllButton = el('runAllBtn');
     if (runAllButton) {
-      runAllButton.disabled = runInProgress || !state.rows.length;
-      runAllButton.textContent = runInProgress ? 'Running…' : 'Run all';
+      runAllButton.disabled = !runInProgress && !state.rows.length;
+      runAllButton.textContent = runInProgress ? 'Stop run' : 'Run all';
+      runAllButton.classList.toggle('danger', runInProgress);
+      runAllButton.classList.toggle('primary', !runInProgress);
     }
     document.querySelectorAll('.run-group-btn').forEach((button) => {
       const laneId = button.closest('.stage-lane')?.dataset.laneId;
@@ -3031,6 +3554,19 @@
     }
   }
 
+  function scrollResponsePanelIntoView(row) {
+    window.requestAnimationFrame(() => {
+      const responsePanel = findRenderedRow(row.id)?.querySelector('.response-panel');
+      if (!responsePanel) return;
+      const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      responsePanel.scrollIntoView({
+        behavior: reduceMotion ? 'auto' : 'smooth',
+        block: 'nearest',
+        inline: 'nearest',
+      });
+    });
+  }
+
   async function runStaged(rows, { resetVars, mode }) {
     if (runInProgress) {
       toast('Wait for the current run to finish');
@@ -3042,6 +3578,7 @@
     }
 
     runInProgress = true;
+    activeRunController = new AbortController();
     const isGroupRun = mode === RUN_MODE.ALL || mode === RUN_MODE.GROUPS;
     if (isGroupRun) {
       hideRunFailureAlert();
@@ -3080,12 +3617,15 @@
 
           const fetched = await fireRequest(row);
           const outcome = await evaluateAndCapture(row, fetched);
+          const wasCancelled = activeRunController?.signal.aborted === true;
+          if (mode === RUN_MODE.SINGLE) row.activePanel = ROW_PANEL.RESPONSE;
           updateRowResult(row);
           updateSummary();
-          if (isGroupRun && (outcome === 'hardfail' || outcome === 'fail-continue')) {
+          if (mode === RUN_MODE.SINGLE) scrollResponsePanelIntoView(row);
+          if (!wasCancelled && isGroupRun && (outcome === 'hardfail' || outcome === 'fail-continue')) {
             revealRunFailure(row, outcome);
           }
-          if (outcome === 'hardfail') stopped = true;
+          if (outcome === 'hardfail' || wasCancelled) stopped = true;
         }
       }
     } finally {
@@ -3094,6 +3634,7 @@
         lane.classList.remove('is-run-active');
       });
       runInProgress = false;
+      activeRunController = null;
       syncRunControls();
       if (isGroupRun) save();
     }
@@ -3147,6 +3688,11 @@
             lines.push('');
           }
           lines.push('**Response**');
+          if (r.responseIsText === false) {
+            lines.push(`Binary file: \`${r.responseFileName || 'response.bin'}\` (${r.responseType || 'application/octet-stream'}, ${formatByteSize(r.responseBytes || 0)})`);
+            lines.push('');
+            continue;
+          }
           lines.push('```json');
           let pretty = r.respBody;
           try { pretty = JSON.stringify(JSON.parse(r.respBody), null, 2); } catch (_) { /* raw */ }
@@ -3351,6 +3897,7 @@
         restoreConfigurationAfterAppend(appendSnapshot, rows);
         importedRowCount = appendImportedWorkspace({ rows, laneOrder, laneMeta });
       } else {
+        if (!tokensOnly) selectedFiles.clear();
         state.rows = rows;
         state.laneOrder = laneOrder;
         state.laneMeta = normalizeLaneMeta(laneMeta, laneOrder);
@@ -3423,6 +3970,9 @@
       authVar: isSecured && authProfile ? authProfile.varName : '',
       headers: isRecord(operation.headers) ? operation.headers : {},
       body: typeof operation.body === 'string' ? operation.body : '',
+      bodyMode: BODY_MODE_VALUES.has(operation.bodyMode) ? operation.bodyMode : BODY_MODE.RAW,
+      formData: normalizeFormData(operation.formData),
+      binaryFile: normalizeFileMetadata(operation.binaryFile),
       expect: typeof operation.expect === 'string' ? operation.expect : '',
       note: noteParts.join(' · '),
     });
@@ -3740,6 +4290,7 @@
         okText: 'Clear rows',
       });
       if (!confirmed) return;
+      selectedFiles.clear();
       state.rows = [];
       selectedLaneIds.clear();
       state.laneMeta = {};
@@ -3796,10 +4347,14 @@
   }
 
   function bindRunBar() {
-    el('runAllBtn').addEventListener('click', () => runStaged(state.rows, {
-      resetVars: true,
-      mode: RUN_MODE.ALL,
-    }));
+    el('runAllBtn').addEventListener('click', () => {
+      if (runInProgress) {
+        activeRunController?.abort('Run stopped by user');
+        toast('Stopping the current request…');
+        return;
+      }
+      runStaged(state.rows, { resetVars: true, mode: RUN_MODE.ALL });
+    });
     el('saveReportBtn').addEventListener('click', saveReport);
   }
 

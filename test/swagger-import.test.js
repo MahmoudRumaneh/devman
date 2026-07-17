@@ -138,6 +138,50 @@ test('preserves an OpenAPI 2XX response range as the success expectation', () =>
   assert.equal(imported.operations[0].expect, '2xx');
 });
 
+test('prepares multipart and binary OpenAPI request bodies for file selection', () => {
+  const imported = normalizeOpenApiDocument({
+    openapi: '3.1.0',
+    info: { title: 'Upload API', version: '1' },
+    paths: {
+      '/assets': {
+        post: {
+          requestBody: {
+            content: {
+              'multipart/form-data': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    title: { type: 'string', example: 'Cover' },
+                    asset: { type: 'string', format: 'binary' },
+                  },
+                },
+              },
+            },
+          },
+          responses: { 201: { description: 'Created' } },
+        },
+      },
+      '/archive': {
+        put: {
+          requestBody: {
+            content: {
+              'application/octet-stream': { schema: { type: 'string', format: 'binary' } },
+            },
+          },
+          responses: { 204: { description: 'Stored' } },
+        },
+      },
+    },
+  }, 'https://example.com/openapi.json', 'https://example.com/openapi.json');
+
+  assert.equal(imported.operations[0].bodyMode, 'multipart');
+  assert.deepEqual(imported.operations[0].formData, [
+    { name: 'title', kind: 'text', value: 'Cover', file: null },
+    { name: 'asset', kind: 'file', value: '', file: null },
+  ]);
+  assert.equal(imported.operations[1].bodyMode, 'binary');
+});
+
 test('discovers and imports an embedded document through a Swagger UI page', async () => {
   const pages = new Map([
     ['https://example.com/api/docs', '<script src="./docs/swagger-ui-init.js"></script>'],

@@ -21,6 +21,11 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { fetchWithNetworkRetry } = require('./lib/fetch-retry');
 const { importOpenApiFromUrl } = require('./lib/swagger-import');
+const {
+  applyUpstreamResponseHeaders,
+  buildUpstreamRequest,
+  streamUpstreamResponse,
+} = require('./lib/proxy-stream');
 
 const WEB_DIR = __dirname;
 const PUBLIC_DIR = path.join(WEB_DIR, 'public');
@@ -109,6 +114,27 @@ async function handleProxy(req, res) {
   }
 }
 
+async function handleProxyStream(req, res) {
+  try {
+    const payload = await readJsonBody(req);
+    const upstreamRequest = buildUpstreamRequest(payload);
+    const started = Date.now();
+    const controller = new AbortController();
+    res.once('close', () => {
+      if (!res.writableEnded) controller.abort();
+    });
+    const { response: upstream, attempts } = await fetchWithNetworkRetry(payload.url || '', {
+      ...upstreamRequest,
+      signal: AbortSignal.any([controller.signal, AbortSignal.timeout(300_000)]),
+    });
+    applyUpstreamResponseHeaders(upstream, res, attempts, Date.now() - started);
+    return streamUpstreamResponse(upstream, res);
+  } catch (error) {
+    res.setHeader('X-Devman-Proxy', 'error');
+    return sendJson(res, 502, { error: error instanceof Error ? error.message : String(error) });
+  }
+}
+
 function handleJq(req, res) {
   readJsonBody(req)
     .then((payload) => {
@@ -163,6 +189,7 @@ async function handleSwaggerImport(req, res) {
 const server = http.createServer(async (req, res) => {
   try {
     if (req.method === 'POST' && req.url === '/api/proxy') return await handleProxy(req, res);
+    if (req.method === 'POST' && req.url === '/api/proxy-stream') return await handleProxyStream(req, res);
     if (req.method === 'POST' && req.url === '/api/jq') return handleJq(req, res);
     if (req.method === 'POST' && req.url === '/api/save-report') return await handleSaveReport(req, res);
     if (req.method === 'POST' && req.url === '/api/swagger-import') return await handleSwaggerImport(req, res);
