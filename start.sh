@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# One command to launch API Test Studio: a local web UI for pasting endpoint
+# One command to launch Devman API: a local web UI for pasting endpoint
 # routes + role tokens (admin/creator/student) and running them.
 set -Eeuo pipefail
 cd "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -12,7 +12,7 @@ command -v node >/dev/null || {
   exit 1
 }
 
-echo "Starting API Test Studio at $URL"
+echo "Starting Devman API at $URL"
 (
   sleep 1
   if command -v xdg-open >/dev/null 2>&1; then xdg-open "$URL" >/dev/null 2>&1

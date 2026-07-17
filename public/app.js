@@ -1,8 +1,11 @@
 (() => {
   'use strict';
 
-  const STORAGE_KEY = 'apiTestStudio.v3';
-  const THEME_KEY = 'apiTestStudio.theme';
+  const STORAGE_KEY = 'devmanApi.v3';
+  const THEME_KEY = 'devmanApi.theme';
+  const LEGACY_STORAGE_KEY = 'apiTestStudio.v3';
+  const LEGACY_THEME_KEY = 'apiTestStudio.theme';
+  const DEFAULT_PROJECT_NAME = 'devman-api';
   const VERBS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
   const SAFE_RETRY_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
   const RETRYABLE_PROXY_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
@@ -11,9 +14,14 @@
   const FAILURE_ALERT_DURATION_MS = 9000;
   const FAILURE_HIGHLIGHT_DURATION_MS = 2600;
   const RUN_MODE = Object.freeze({ ALL: 'all', SINGLE: 'single' });
+  const ROW_PANEL = Object.freeze({ NONE: '', BODY: 'body', HEADERS: 'headers', RESPONSE: 'response' });
+  const ROW_PANEL_VALUES = new Set(Object.values(ROW_PANEL));
+  const HEADER_NAME_PATTERN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
+  const DEFAULT_CUSTOM_HEADER_NAME = 'X-Custom-Header';
   const ICONS = {
     copy: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M15 9V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h3"></path></svg>',
     check: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"></path></svg>',
+    response: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"></path><circle cx="12" cy="12" r="2.5"></circle></svg>',
   };
   const DEFAULT_TOKEN_PROFILES = [
     { key: 'admin', label: 'Tenant admin', varName: 'ADMIN_TOKEN', scope: 'TenantRole.TENANT_ADMIN', locked: true },
@@ -92,7 +100,7 @@
   const newLaneId = () => `lane-${nextLaneNum++}`;
 
   function emptyRow(over = {}) {
-    return {
+    const row = {
       id: newRowId(),
       laneId: null,
       method: 'GET',
@@ -108,9 +116,14 @@
       continueOnFail: false,
       note: '',
       result: null,
-      expanded: false,
+      activePanel: ROW_PANEL.NONE,
       ...over,
     };
+    if (!ROW_PANEL_VALUES.has(row.activePanel)) row.activePanel = ROW_PANEL.NONE;
+    if (row.expanded && row.activePanel === ROW_PANEL.NONE) row.activePanel = ROW_PANEL.BODY;
+    if (row.activePanel === ROW_PANEL.RESPONSE && !row.result) row.activePanel = ROW_PANEL.NONE;
+    delete row.expanded;
+    return row;
   }
 
   function lastLaneId() {
@@ -285,8 +298,7 @@
       if (!token.trim()) {
         text.textContent = 'No pasted token. Captured suite tokens can still be used.';
       } else if (!meta) {
-        item.classList.add('warn');
-        text.textContent = 'Not a readable JWT.';
+        text.textContent = 'Opaque token ready. It will be sent exactly as provided.';
       } else {
         const issuer = meta.iss ? `issuer: ${meta.iss}` : 'issuer missing';
         const azp = meta.azp ? ` · azp: ${meta.azp}` : '';
@@ -409,7 +421,7 @@
   }
 
   function load() {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(STORAGE_KEY) || localStorage.getItem(LEGACY_STORAGE_KEY);
     if (!raw) return;
     try {
       const parsed = JSON.parse(raw);
@@ -427,6 +439,7 @@
         state.laneOrder = [id];
         state.rows.forEach((r) => { r.laneId = id; });
       }
+      if (!localStorage.getItem(STORAGE_KEY)) save();
     } catch (e) {
       console.warn('Failed to load saved state', e);
     }
@@ -453,7 +466,8 @@
   }
 
   function initTheme() {
-    const saved = localStorage.getItem(THEME_KEY) || 'auto';
+    const saved = localStorage.getItem(THEME_KEY) || localStorage.getItem(LEGACY_THEME_KEY) || 'auto';
+    if (!localStorage.getItem(THEME_KEY)) localStorage.setItem(THEME_KEY, saved);
     applyTheme(saved);
     el('themeToggle').addEventListener('click', () => {
       const order = ['auto', 'light', 'dark'];
@@ -529,12 +543,11 @@
   function focusFailedEndpoint(row) {
     if (state.endpointSearch && !rowMatchesSearch(row)) {
       state.endpointSearch = '';
-      const searchInput = el('endpointSearch');
-      if (searchInput) searchInput.value = '';
+      syncEndpointSearchControls();
       saveDebounced();
     }
 
-    row.expanded = true;
+    row.activePanel = ROW_PANEL.RESPONSE;
     clearFailureHighlight();
     highlightedFailureRowId = row.id;
     renderRows();
@@ -784,19 +797,38 @@
 
   // ---- route / status helpers ------------------------------------------------
 
-  function parseRoutesText(text) {
-    return text
-      .split('\n')
-      .map((l) => l.trim())
-      .filter((l) => l && !l.startsWith('#'))
-      .map((line) => {
-        const parts = line.split(/\s+/);
-        const maybeVerb = parts[0].toUpperCase();
-        if (VERBS.includes(maybeVerb) && parts.length > 1) {
-          return { method: maybeVerb, path: parts.slice(1).join(' ') };
+  function analyzeRoutesText(text) {
+    const routes = [];
+    const issues = [];
+    String(text || '').split('\n').forEach((rawLine, index) => {
+      const line = rawLine.trim();
+      if (!line || line.startsWith('#')) return;
+
+      const parts = line.split(/\s+/);
+      const firstPart = parts[0];
+      const maybeVerb = firstPart.toUpperCase();
+      let method = 'GET';
+      let path = line;
+
+      if (VERBS.includes(maybeVerb)) {
+        method = maybeVerb;
+        path = parts.slice(1).join(' ');
+        if (!path) {
+          issues.push({ line: index + 1, message: `${method} is missing an endpoint path` });
+          return;
         }
-        return { method: 'GET', path: line };
-      });
+      } else if (/^[A-Za-z]+$/.test(firstPart) && parts.length > 1) {
+        issues.push({ line: index + 1, message: `Unsupported method “${firstPart}”` });
+        return;
+      }
+
+      if (/\s/.test(path)) {
+        issues.push({ line: index + 1, message: 'Endpoint paths cannot contain spaces' });
+        return;
+      }
+      routes.push({ method, path });
+    });
+    return { routes, issues };
   }
 
   function joinUrl(base, path) {
@@ -1187,6 +1219,255 @@
       : `${total} endpoint${total === 1 ? '' : 's'}`;
   }
 
+  function syncEndpointSearchControls() {
+    const input = el('endpointSearch');
+    const clearButton = el('clearSearchBtn');
+    if (input && input.value !== state.endpointSearch) input.value = state.endpointSearch;
+    if (clearButton) clearButton.disabled = !state.endpointSearch.trim();
+  }
+
+  function customHeaderEntries(row) {
+    if (!isRecord(row.headers)) return [];
+    return Object.entries(row.headers).map(([name, value]) => [name, String(value ?? '')]);
+  }
+
+  function replaceCustomHeaders(row, entries) {
+    row.headers = Object.fromEntries(entries);
+  }
+
+  function hasHeaderName(entries, name, exceptName = '') {
+    const normalizedName = name.toLowerCase();
+    return entries.some(([existingName]) =>
+      existingName.toLowerCase() === normalizedName &&
+      existingName !== exceptName);
+  }
+
+  function nextCustomHeaderName(row) {
+    const entries = customHeaderEntries(row);
+    let name = DEFAULT_CUSTOM_HEADER_NAME;
+    let suffix = 2;
+    while (hasHeaderName(entries, name)) name = `${DEFAULT_CUSTOM_HEADER_NAME}-${suffix++}`;
+    return name;
+  }
+
+  function renameCustomHeader(row, currentName, nextName) {
+    replaceCustomHeaders(row, customHeaderEntries(row).map(([name, value]) =>
+      name === currentName ? [nextName, value] : [name, value]));
+  }
+
+  function setCustomHeaderValue(row, headerName, value) {
+    replaceCustomHeaders(row, customHeaderEntries(row).map(([name, currentValue]) =>
+      name === headerName ? [name, value] : [name, currentValue]));
+  }
+
+  function removeCustomHeader(row, headerName) {
+    replaceCustomHeaders(row, customHeaderEntries(row).filter(([name]) => name !== headerName));
+  }
+
+  function managedHeaderDescriptions(row) {
+    const entries = customHeaderEntries(row);
+    const managed = [];
+    if (row.authVar && !hasHeaderName(entries, 'Authorization')) {
+      managed.push(`Authorization from ${row.authVar}`);
+    }
+    if (row.authVar && state.sendTenantHeader && !hasHeaderName(entries, 'x-tenant-id')) {
+      managed.push('x-tenant-id when TENANT_ID is available');
+    }
+    if (String(row.body || '').trim() && !hasHeaderName(entries, 'Content-Type')) {
+      managed.push('Content-Type: application/json');
+    }
+    return managed;
+  }
+
+  function findHeadersPanel(rowId) {
+    return [...document.querySelectorAll('.request-headers-panel')]
+      .find((panel) => panel.dataset.rowId === rowId);
+  }
+
+  function focusHeadersEditor(row, selectHeaderName = '') {
+    row.activePanel = ROW_PANEL.HEADERS;
+    renderRows();
+    save();
+    window.requestAnimationFrame(() => {
+      const panel = findHeadersPanel(row.id);
+      if (!panel) return;
+      const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      panel.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'nearest', inline: 'nearest' });
+      const inputs = [...panel.querySelectorAll('.header-name-input')];
+      const input = inputs.find((candidate) => candidate.value === selectHeaderName) || inputs[0];
+      if (input) {
+        input.focus({ preventScroll: true });
+        if (selectHeaderName) input.select();
+      } else {
+        panel.querySelector('.add-header-btn')?.focus({ preventScroll: true });
+      }
+    });
+  }
+
+  function addCustomHeader(row) {
+    const name = nextCustomHeaderName(row);
+    replaceCustomHeaders(row, [...customHeaderEntries(row), [name, '']]);
+    save();
+    focusHeadersEditor(row, name);
+  }
+
+  function buildHeadersPanel(row) {
+    const entries = customHeaderEntries(row);
+    const panel = document.createElement('section');
+    panel.className = 'request-panel request-headers-panel';
+    panel.dataset.rowId = row.id;
+
+    const head = document.createElement('div');
+    head.className = 'panel-head headers-panel-head';
+    const heading = document.createElement('div');
+    heading.className = 'headers-panel-title';
+    const title = document.createElement('strong');
+    title.textContent = 'Request headers';
+    const count = document.createElement('span');
+    count.textContent = `${entries.length} custom`;
+    heading.appendChild(title);
+    heading.appendChild(count);
+
+    const actions = document.createElement('div');
+    actions.className = 'panel-actions';
+    const addButton = document.createElement('button');
+    addButton.className = 'btn primary small add-header-btn';
+    addButton.type = 'button';
+    addButton.textContent = '+ Add header';
+    addButton.addEventListener('click', () => addCustomHeader(row));
+    actions.appendChild(addButton);
+
+    if (entries.length) {
+      const clearButton = document.createElement('button');
+      clearButton.className = 'btn ghost small';
+      clearButton.type = 'button';
+      clearButton.textContent = 'Clear all';
+      clearButton.addEventListener('click', async () => {
+        const confirmed = await showConfirm({
+          title: 'Clear request headers',
+          message: `Remove all ${entries.length} custom header${entries.length === 1 ? '' : 's'} from ${row.method} ${row.path || '/'}?`,
+          okText: 'Clear headers',
+        });
+        if (!confirmed) return;
+        row.headers = {};
+        renderRows();
+        save();
+      });
+      actions.appendChild(clearButton);
+    }
+
+    head.appendChild(heading);
+    head.appendChild(actions);
+    panel.appendChild(head);
+
+    const body = document.createElement('div');
+    body.className = 'headers-editor';
+    if (!entries.length) {
+      const empty = document.createElement('div');
+      empty.className = 'headers-empty';
+      const emptyTitle = document.createElement('strong');
+      emptyTitle.textContent = 'No custom headers yet';
+      const emptyText = document.createElement('span');
+      emptyText.textContent = 'Add only the headers this endpoint needs. Variables such as ${TENANT_ID} are supported.';
+      empty.appendChild(emptyTitle);
+      empty.appendChild(emptyText);
+      body.appendChild(empty);
+    } else {
+      const labels = document.createElement('div');
+      labels.className = 'header-editor-labels';
+      labels.innerHTML = '<span>Header name</span><span>Value</span><span></span>';
+      body.appendChild(labels);
+
+      entries.forEach(([initialName, initialValue]) => {
+        let currentName = initialName;
+        const editorRow = document.createElement('div');
+        editorRow.className = 'header-editor-row';
+
+        const nameInput = document.createElement('input');
+        nameInput.className = 'header-name-input';
+        nameInput.type = 'text';
+        nameInput.value = currentName;
+        nameInput.placeholder = 'X-Custom-Header';
+        nameInput.autocomplete = 'off';
+        nameInput.spellcheck = false;
+        nameInput.setAttribute('aria-label', 'Header name');
+        nameInput.addEventListener('keydown', (event) => {
+          if (event.key === 'Enter') nameInput.blur();
+        });
+        nameInput.addEventListener('change', () => {
+          const nextName = nameInput.value.trim();
+          const latestEntries = customHeaderEntries(row);
+          if (!HEADER_NAME_PATTERN.test(nextName)) {
+            nameInput.value = currentName;
+            toast('Enter a valid HTTP header name');
+            return;
+          }
+          if (hasHeaderName(latestEntries, nextName, currentName)) {
+            nameInput.value = currentName;
+            toast(`Header “${nextName}” already exists`);
+            return;
+          }
+          if (nextName === currentName) return;
+          renameCustomHeader(row, currentName, nextName);
+          currentName = nextName;
+          nameInput.value = nextName;
+          save();
+        });
+
+        const valueInput = document.createElement('input');
+        valueInput.className = 'header-value-input';
+        valueInput.type = 'text';
+        valueInput.value = initialValue;
+        valueInput.placeholder = 'Value or ${VARIABLE}';
+        valueInput.autocomplete = 'off';
+        valueInput.spellcheck = false;
+        valueInput.setAttribute('aria-label', `Value for ${initialName}`);
+        valueInput.addEventListener('input', () => {
+          setCustomHeaderValue(row, currentName, valueInput.value);
+          saveDebounced();
+        });
+
+        const removeButton = document.createElement('button');
+        removeButton.className = 'header-remove-btn';
+        removeButton.type = 'button';
+        removeButton.textContent = '×';
+        removeButton.title = `Remove ${initialName}`;
+        removeButton.setAttribute('aria-label', `Remove ${initialName} header`);
+        removeButton.addEventListener('click', () => {
+          removeCustomHeader(row, currentName);
+          renderRows();
+          save();
+        });
+
+        editorRow.appendChild(nameInput);
+        editorRow.appendChild(valueInput);
+        editorRow.appendChild(removeButton);
+        body.appendChild(editorRow);
+      });
+    }
+    panel.appendChild(body);
+
+    const managed = managedHeaderDescriptions(row);
+    if (managed.length) {
+      const managedRow = document.createElement('div');
+      managedRow.className = 'managed-headers';
+      const managedLabel = document.createElement('strong');
+      managedLabel.textContent = 'Added automatically';
+      const managedList = document.createElement('div');
+      managedList.className = 'managed-header-list';
+      managed.forEach((description) => {
+        const chip = document.createElement('span');
+        chip.textContent = description;
+        managedList.appendChild(chip);
+      });
+      managedRow.appendChild(managedLabel);
+      managedRow.appendChild(managedList);
+      panel.appendChild(managedRow);
+    }
+
+    return panel;
+  }
+
   function buildRowEl(row) {
     const wrap = document.createElement('div');
     wrap.className = 'request-card';
@@ -1321,16 +1602,34 @@
 
     const actionsCell = document.createElement('div');
     actionsCell.className = 'actions-cell';
-    const detailsBtn = document.createElement('button');
-    detailsBtn.className = 'btn ghost small row-action';
+    const bodyBtn = document.createElement('button');
+    bodyBtn.className = 'btn ghost small row-action endpoint-body-btn';
     const hasInspectableResult =
       row.result && row.result.state !== 'pending' && row.result.state !== 'skipped';
-    detailsBtn.textContent = row.expanded ? 'Hide' : hasInspectableResult ? 'Details' : 'Body';
-    detailsBtn.title = 'Show or hide request body and response';
-    detailsBtn.addEventListener('click', () => {
-      row.expanded = !row.expanded;
+    const bodyIsOpen = row.activePanel === ROW_PANEL.BODY;
+    bodyBtn.textContent = bodyIsOpen ? 'Hide' : 'Body';
+    bodyBtn.title = bodyIsOpen ? 'Hide request body' : 'Show request body';
+    bodyBtn.setAttribute('aria-expanded', String(bodyIsOpen));
+    bodyBtn.addEventListener('click', () => {
+      row.activePanel = bodyIsOpen ? ROW_PANEL.NONE : ROW_PANEL.BODY;
       renderRows();
       save();
+    });
+    const headersBtn = document.createElement('button');
+    headersBtn.className = 'btn ghost small row-action endpoint-headers-btn';
+    const headerCount = customHeaderEntries(row).length;
+    const headersAreOpen = row.activePanel === ROW_PANEL.HEADERS;
+    headersBtn.textContent = headersAreOpen ? 'Hide' : `Headers${headerCount ? ` · ${headerCount}` : ''}`;
+    headersBtn.title = headersAreOpen ? 'Hide request headers' : 'View or edit request headers';
+    headersBtn.setAttribute('aria-expanded', String(headersAreOpen));
+    headersBtn.addEventListener('click', () => {
+      if (headersAreOpen) {
+        row.activePanel = ROW_PANEL.NONE;
+        renderRows();
+        save();
+        return;
+      }
+      focusHeadersEditor(row);
     });
     const runOneBtn = document.createElement('button');
     runOneBtn.className = 'btn primary small row-action run-endpoint-btn';
@@ -1350,7 +1649,8 @@
       renderRows();
       save();
     });
-    actionsCell.appendChild(detailsBtn);
+    actionsCell.appendChild(bodyBtn);
+    actionsCell.appendChild(headersBtn);
     actionsCell.appendChild(runOneBtn);
     actionsCell.appendChild(removeBtn);
 
@@ -1375,52 +1675,56 @@
     for (const chip of buildAdvancedChips(row)) subline.appendChild(chip);
     if (subline.childNodes.length) wrap.appendChild(subline);
 
-    if (row.expanded) {
+    if (row.activePanel !== ROW_PANEL.NONE) {
       const extra = document.createElement('div');
       extra.className = 'request-extra';
 
-      const bodyPanel = document.createElement('section');
-      bodyPanel.className = 'request-panel request-body-panel';
-      const bodyHead = document.createElement('div');
-      bodyHead.className = 'panel-head';
-      bodyHead.innerHTML = '<strong>Request body</strong><span>JSON with ${VARS} supported</span>';
-      const bodyActions = document.createElement('div');
-      bodyActions.className = 'panel-actions';
+      if (row.activePanel === ROW_PANEL.HEADERS) extra.appendChild(buildHeadersPanel(row));
 
-      const formatBtn = document.createElement('button');
-      formatBtn.className = 'btn ghost small';
-      formatBtn.type = 'button';
-      formatBtn.textContent = 'Format';
-      formatBtn.addEventListener('click', () => {
-        const raw = bodyTa.value.trim();
-        if (!raw) return;
-        try {
-          row.body = JSON.stringify(JSON.parse(raw), null, 2);
+      if (row.activePanel === ROW_PANEL.BODY) {
+        const bodyPanel = document.createElement('section');
+        bodyPanel.className = 'request-panel request-body-panel';
+        const bodyHead = document.createElement('div');
+        bodyHead.className = 'panel-head';
+        bodyHead.innerHTML = '<strong>Request body</strong><span>JSON with ${VARS} supported</span>';
+        const bodyActions = document.createElement('div');
+        bodyActions.className = 'panel-actions';
+
+        const formatBtn = document.createElement('button');
+        formatBtn.className = 'btn ghost small';
+        formatBtn.type = 'button';
+        formatBtn.textContent = 'Format';
+        formatBtn.addEventListener('click', () => {
+          const raw = bodyTa.value.trim();
+          if (!raw) return;
+          try {
+            row.body = JSON.stringify(JSON.parse(raw), null, 2);
+            renderRows();
+            save();
+          } catch (_) {
+            toast('Body is not valid JSON yet');
+          }
+        });
+
+        const clearBodyBtn = document.createElement('button');
+        clearBodyBtn.className = 'btn ghost small';
+        clearBodyBtn.type = 'button';
+        clearBodyBtn.textContent = 'Clear';
+        clearBodyBtn.addEventListener('click', () => {
+          row.body = '';
           renderRows();
           save();
-        } catch (_) {
-          toast('Body is not valid JSON yet');
-        }
-      });
+        });
 
-      const clearBodyBtn = document.createElement('button');
-      clearBodyBtn.className = 'btn ghost small';
-      clearBodyBtn.type = 'button';
-      clearBodyBtn.textContent = 'Clear';
-      clearBodyBtn.addEventListener('click', () => {
-        row.body = '';
-        renderRows();
-        save();
-      });
+        bodyActions.appendChild(formatBtn);
+        bodyActions.appendChild(clearBodyBtn);
+        bodyHead.appendChild(bodyActions);
+        bodyPanel.appendChild(bodyHead);
+        bodyPanel.appendChild(bodyTa);
+        extra.appendChild(bodyPanel);
+      }
 
-      bodyActions.appendChild(formatBtn);
-      bodyActions.appendChild(clearBodyBtn);
-      bodyHead.appendChild(bodyActions);
-      bodyPanel.appendChild(bodyHead);
-      bodyPanel.appendChild(bodyTa);
-      extra.appendChild(bodyPanel);
-
-      if (row.result && row.result.state !== 'pending' && row.result.state !== 'skipped') {
+      if (row.activePanel === ROW_PANEL.RESPONSE && hasInspectableResult) {
         extra.appendChild(buildResponsePanel(row));
       }
 
@@ -1509,11 +1813,31 @@
     }
     container.appendChild(badge);
 
+    const hasInspectableResponse = r && r.state !== 'pending' && r.state !== 'skipped';
+    if (hasInspectableResponse) {
+      const responseToggle = document.createElement('button');
+      responseToggle.className = 'result-toggle response-panel-toggle';
+      responseToggle.type = 'button';
+      const responseIsOpen = row.activePanel === ROW_PANEL.RESPONSE;
+      responseToggle.innerHTML = ICONS.response;
+      const responseLabel = document.createElement('span');
+      responseLabel.textContent = responseIsOpen ? 'Hide' : 'Response';
+      responseToggle.appendChild(responseLabel);
+      responseToggle.title = responseIsOpen ? 'Hide response details' : 'Show response details';
+      responseToggle.setAttribute('aria-expanded', String(responseIsOpen));
+      responseToggle.addEventListener('click', () => {
+        row.activePanel = responseIsOpen ? ROW_PANEL.NONE : ROW_PANEL.RESPONSE;
+        renderRows();
+        save();
+      });
+      container.appendChild(responseToggle);
+    }
+
     return container;
   }
 
   function updateRowResult(row) {
-    if (row.expanded) {
+    if (row.activePanel !== ROW_PANEL.NONE) {
       renderRows();
       return;
     }
@@ -1539,18 +1863,33 @@
 
   // ---- running (groups and rows execute sequentially, with capture between rows) --
 
+  function assignRequestHeader(headers, name, value) {
+    const existingName = Object.keys(headers)
+      .find((headerName) => headerName.toLowerCase() === name.toLowerCase());
+    if (existingName && existingName !== name) delete headers[existingName];
+    headers[name] = value;
+  }
+
+  function requestHasHeader(headers, name) {
+    return Object.keys(headers).some((headerName) => headerName.toLowerCase() === name.toLowerCase());
+  }
+
   function buildRequestSnapshot(row) {
     const url = joinUrl(state.baseUrl, subst(row.path.trim()));
     const headers = {};
-    if (row.authVar && VARS[row.authVar]) headers.Authorization = `Bearer ${VARS[row.authVar]}`;
-    for (const [header, value] of Object.entries(row.headers || {})) {
-      headers[header] = subst(String(value));
+    if (row.authVar && VARS[row.authVar]) {
+      assignRequestHeader(headers, 'Authorization', `Bearer ${VARS[row.authVar]}`);
     }
-    if (!('x-tenant-id' in headers) && row.authVar && state.sendTenantHeader && VARS.TENANT_ID) {
-      headers['x-tenant-id'] = VARS.TENANT_ID;
+    for (const [header, value] of customHeaderEntries(row)) {
+      assignRequestHeader(headers, header, subst(value));
+    }
+    if (!requestHasHeader(headers, 'x-tenant-id') && row.authVar && state.sendTenantHeader && VARS.TENANT_ID) {
+      assignRequestHeader(headers, 'x-tenant-id', VARS.TENANT_ID);
     }
     const body = subst(row.body.trim());
-    if (body) headers['Content-Type'] = 'application/json';
+    if (body && !requestHasHeader(headers, 'Content-Type')) {
+      assignRequestHeader(headers, 'Content-Type', 'application/json');
+    }
     return { url, headers, body };
   }
 
@@ -1584,7 +1923,7 @@
   async function parseProxyResponse(response) {
     const rawBody = await response.text();
     if (!response.ok) {
-      const error = new Error(`Studio proxy returned HTTP ${response.status}${rawBody ? `: ${rawBody}` : ''}`);
+      const error = new Error(`Devman API proxy returned HTTP ${response.status}${rawBody ? `: ${rawBody}` : ''}`);
       error.retryable = RETRYABLE_PROXY_STATUSES.has(response.status);
       throw error;
     }
@@ -1593,13 +1932,13 @@
     try {
       output = JSON.parse(rawBody);
     } catch {
-      const error = new Error('Studio proxy returned an invalid response');
+      const error = new Error('Devman API proxy returned an invalid response');
       error.retryable = true;
       throw error;
     }
 
     if (!isRecord(output) || typeof output.status !== 'number' || typeof output.body !== 'string') {
-      const error = new Error('Studio proxy response is missing required fields');
+      const error = new Error('Devman API proxy response is missing required fields');
       error.retryable = true;
       throw error;
     }
@@ -1637,7 +1976,7 @@
       }
     }
 
-    throw new Error('Studio proxy request failed');
+    throw new Error('Devman API proxy request failed');
   }
 
   async function fireRequest(row) {
@@ -1807,8 +2146,8 @@
 
   function buildReportMarkdown() {
     const lines = [];
-    const name = el('suiteName').value || 'api-test-studio';
-    lines.push(`# API Test Studio run — ${name}`);
+    const name = el('suiteName').value || DEFAULT_PROJECT_NAME;
+    lines.push(`# Devman API run — ${name}`);
     lines.push('');
     lines.push(`- Base URL: \`${state.baseUrl}\``);
     lines.push(`- Generated: ${new Date().toISOString()}`);
@@ -1865,8 +2204,8 @@
 
   async function saveReport() {
     const markdown = buildReportMarkdown();
-    const rawName = el('suiteName').value || 'api-test-studio';
-    const name = rawName.replace(/[^a-zA-Z0-9_-]/g, '') || 'api-test-studio';
+    const rawName = el('suiteName').value || DEFAULT_PROJECT_NAME;
+    const name = rawName.replace(/[^a-zA-Z0-9_-]/g, '') || DEFAULT_PROJECT_NAME;
     try {
       const runId = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
       const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
@@ -1973,10 +2312,62 @@
   function bindEndpointControls() {
     const searchInput = el('endpointSearch');
     const clearSearchBtn = el('clearSearchBtn');
+    const pasteBox = el('pasteBox');
+    const parseButton = el('parseBtn');
+
+    const syncRouteComposer = () => {
+      const analysis = analyzeRoutesText(pasteBox.value);
+      const count = el('routeComposerCount');
+      const feedback = el('routeComposerFeedback');
+      const hasInput = pasteBox.value.trim().length > 0;
+      const hasIssues = analysis.issues.length > 0;
+      const endpointLabel = `endpoint${analysis.routes.length === 1 ? '' : 's'}`;
+
+      count.classList.toggle('is-ready', analysis.routes.length > 0 && !hasIssues);
+      count.classList.toggle('has-error', hasIssues);
+      count.textContent = !hasInput
+        ? 'Waiting for input'
+        : hasIssues
+          ? `${analysis.issues.length} issue${analysis.issues.length === 1 ? '' : 's'}`
+          : `${analysis.routes.length} ${endpointLabel} ready`;
+
+      if (!hasInput) {
+        feedback.textContent = 'Paste endpoints to validate them.';
+      } else if (hasIssues) {
+        const issue = analysis.issues[0];
+        const extraIssues = analysis.issues.length > 1 ? ` · +${analysis.issues.length - 1} more` : '';
+        feedback.textContent = `Line ${issue.line}: ${issue.message}${extraIssues}`;
+      } else {
+        const methodCounts = new Map();
+        analysis.routes.forEach(({ method }) => methodCounts.set(method, (methodCounts.get(method) || 0) + 1));
+        const summary = [...methodCounts.entries()].map(([method, methodCount]) => `${methodCount} ${method}`).join(' · ');
+        feedback.textContent = `${analysis.routes.length} ${endpointLabel} ready${summary ? ` · ${summary}` : ''}`;
+      }
+
+      feedback.classList.toggle('has-error', hasIssues);
+      pasteBox.setAttribute('aria-invalid', String(hasIssues));
+      parseButton.disabled = !analysis.routes.length || hasIssues;
+      parseButton.textContent = analysis.routes.length && !hasIssues
+        ? `Add ${analysis.routes.length} ${endpointLabel}`
+        : 'Add endpoints';
+
+      pasteBox.style.height = 'auto';
+      pasteBox.style.height = `${Math.min(Math.max(pasteBox.scrollHeight, 112), 240)}px`;
+      return analysis;
+    };
+
+    pasteBox.addEventListener('input', syncRouteComposer);
+    pasteBox.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' || (!event.ctrlKey && !event.metaKey)) return;
+      event.preventDefault();
+      if (!parseButton.disabled) parseButton.click();
+    });
+    syncRouteComposer();
     if (searchInput) {
-      searchInput.value = state.endpointSearch;
+      syncEndpointSearchControls();
       searchInput.addEventListener('input', (event) => {
         state.endpointSearch = event.target.value;
+        syncEndpointSearchControls();
         renderRows();
         saveDebounced();
       });
@@ -1984,21 +2375,25 @@
     if (clearSearchBtn) {
       clearSearchBtn.addEventListener('click', () => {
         state.endpointSearch = '';
-        if (searchInput) searchInput.value = '';
+        syncEndpointSearchControls();
         renderRows();
         save();
         searchInput?.focus();
       });
     }
 
-    el('parseBtn').addEventListener('click', () => {
-      const parsed = parseRoutesText(el('pasteBox').value);
+    parseButton.addEventListener('click', () => {
+      const analysis = syncRouteComposer();
+      const parsed = analysis.routes;
+      if (analysis.issues.length) return;
       if (!parsed.length) return;
       const laneId = lastLaneId();
       for (const p of parsed) state.rows.push(emptyRow({ ...p, laneId }));
-      el('pasteBox').value = '';
+      pasteBox.value = '';
+      syncRouteComposer();
       renderRows();
       save();
+      toast(`Added ${parsed.length} endpoint${parsed.length === 1 ? '' : 's'}`);
     });
 
     const addEmpty = () => { state.rows.push(emptyRow({ laneId: lastLaneId() })); renderRows(); save(); };
@@ -2051,12 +2446,12 @@
         laneOrder: state.laneOrder,
         rows: state.rows.map(({ result, ...rest }) => rest),
       };
-      downloadJson(`${el('suiteName').value || 'api-test-studio'}.json`, data);
+      downloadJson(`${el('suiteName').value || DEFAULT_PROJECT_NAME}.json`, data);
       toast('JSON exported with token values — store it securely');
     });
 
     el('templateBtn').addEventListener('click', () => {
-      downloadJson('api-test-suite-template.json', DEFAULT_TEMPLATE);
+      downloadJson('devman-api-suite-template.json', DEFAULT_TEMPLATE);
     });
 
     el('importBtn').addEventListener('click', () => el('importFile').click());

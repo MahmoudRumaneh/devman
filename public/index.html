@@ -3,17 +3,18 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>API Test Studio</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext x='16' y='24' font-size='24' text-anchor='middle'%3E%E2%9A%A1%3C/text%3E%3C/svg%3E" />
+<title>Devman API</title>
+<link rel="icon" type="image/png" href="devman-api-logo.png" />
+<link rel="apple-touch-icon" href="devman-api-logo.png" />
 <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <header class="topbar">
     <div class="topbar-inner">
       <div class="brand">
-        <span class="brand-mark">API</span>
+        <img class="brand-logo" src="devman-api-logo.png" alt="Devman API logo" width="53" height="40" />
         <div>
-          <h1>API Test Studio</h1>
+          <h1>Devman API</h1>
           <p>Import suites, run staged flows, inspect responses.</p>
         </div>
       </div>
@@ -46,11 +47,6 @@
         <input id="sendTenantHeader" type="checkbox" checked />
         <span>Send <code>x-tenant-id</code> header on authenticated requests</span>
       </label>
-      <div class="notice" id="issuerNotice">
-        Use tokens from the same Keycloak realm as the backend. If every
-        authenticated request returns 401, compare the token issuer with
-        <code>KEYCLOAK_REALM</code>.
-      </div>
     </section>
 
     <section class="card setup-card">
@@ -84,16 +80,36 @@
         staged/sequential execution, variable capture between steps, and known-bug flags for free.
         Drag the <code>⠿</code> handle on a row to move it into a different group, or drag a group's
         header to reorder groups — every row waits for the previous response, and groups run top to bottom.</p>
-      <textarea id="pasteBox" rows="4" placeholder="GET /admin/courses/queue
+      <section class="route-composer" aria-labelledby="routeComposerTitle">
+        <div class="route-composer-head">
+          <div class="route-composer-heading">
+            <span class="route-composer-icon" aria-hidden="true">+</span>
+            <div>
+              <h3 id="routeComposerTitle">Quick add endpoints</h3>
+              <p>One endpoint per line. The method is optional and defaults to GET.</p>
+            </div>
+          </div>
+          <span id="routeComposerCount" class="route-composer-count">Waiting for input</span>
+        </div>
+        <div class="route-editor-shell">
+          <textarea id="pasteBox" rows="4" aria-label="Endpoint routes" aria-describedby="routeComposerFeedback routeComposerShortcut" spellcheck="false" placeholder="GET /admin/courses/queue
 POST /admin/courses/{id}/approve
 GET /admin/courses/queue?tab=PENDING"></textarea>
+        </div>
+        <div class="route-composer-footer">
+          <div class="route-composer-help">
+            <span id="routeComposerFeedback" class="route-composer-feedback" role="status" aria-live="polite">Paste endpoints to validate them.</span>
+            <span id="routeComposerShortcut" class="route-composer-shortcut"><kbd>Ctrl</kbd><span>+</span><kbd>Enter</kbd> to add</span>
+          </div>
+          <button id="parseBtn" class="btn primary route-add-btn" type="button" disabled>Add endpoints</button>
+        </div>
+      </section>
       <div id="dropZone" class="drop-zone" tabindex="0">
         <strong>Drop a suite JSON here</strong>
-        <span>or use import below. Engine suites, Studio exports, and the template all work.</span>
+        <span>or use import below. Engine suites, Devman API exports, and the template all work.</span>
       </div>
 
       <div class="btn-row">
-        <button id="parseBtn" class="btn primary" type="button">Add parsed routes</button>
         <button id="addRowBtn" class="btn ghost" type="button">+ Add empty row</button>
         <button id="exampleBtn" class="btn ghost" type="button">Load example</button>
         <span class="spacer"></span>
@@ -101,12 +117,20 @@ GET /admin/courses/queue?tab=PENDING"></textarea>
       </div>
 
       <div class="endpoint-search">
-        <label class="search-field">
-          <span>Search endpoints</span>
-          <input id="endpointSearch" type="search" placeholder="Search method, path, notes, captures, body..." autocomplete="off" />
-        </label>
-        <button id="clearSearchBtn" class="btn ghost small" type="button">Clear</button>
-        <span id="searchCount" class="search-count">0 endpoints</span>
+        <div class="endpoint-search-head">
+          <label for="endpointSearch">Search endpoints</label>
+          <span id="searchCount" class="search-count">0 endpoints</span>
+        </div>
+        <div class="endpoint-search-controls">
+          <div class="endpoint-search-input-wrap">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"></circle><path d="m16 16 4 4"></path></svg>
+            <input id="endpointSearch" type="search" placeholder="Search method, path, headers, notes, captures, body..." autocomplete="off" />
+          </div>
+          <button id="clearSearchBtn" class="btn ghost endpoint-search-clear" type="button" disabled>
+            <span aria-hidden="true">×</span>
+            Clear
+          </button>
+        </div>
       </div>
 
       <div class="vars-panel">
@@ -141,7 +165,7 @@ GET /admin/courses/queue?tab=PENDING"></textarea>
       <div class="run-bar-inner">
         <label class="field inline">
           <span>Report name</span>
-          <input id="suiteName" type="text" value="api-test-studio" />
+          <input id="suiteName" type="text" value="devman-api" />
         </label>
         <span class="summary">
           <span id="sumTotal">0</span> total
@@ -191,7 +215,7 @@ GET /admin/courses/queue?tab=PENDING"></textarea>
       <div class="guide-head">
         <div>
           <span class="guide-eyebrow">Start in a minute</span>
-          <h3 id="guideTitle">How to use API Test Studio</h3>
+          <h3 id="guideTitle">How to use Devman API</h3>
         </div>
         <button id="guideClose" class="guide-close" type="button" aria-label="Close guide">×</button>
       </div>

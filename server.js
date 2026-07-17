@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Zero-dependency local server for API Test Studio (plain Node.js, no npm install needed).
+// Zero-dependency local server for Devman API (plain Node.js, no npm install needed).
 //
 // Serves the static UI (public/) and exposes endpoints the page's JS calls
 // same-origin, so the browser never has to fight the target API's CORS policy:
@@ -10,7 +10,7 @@
 //                              "assert" and "capture" when importing a full
 //                              engine-suite JSON, so semantics match engine.sh
 //                              exactly instead of reimplementing jq in the browser)
-//   POST /api/save-report  -> writes a Markdown report into ../../api-test-reports/
+//   POST /api/save-report  -> writes a Markdown report into ../../devman-api-reports/
 //
 // Binds to 127.0.0.1 only (not 0.0.0.0) since /api/proxy will fetch whatever
 // URL the page asks for.
@@ -23,7 +23,7 @@ const { fetchWithNetworkRetry } = require('./lib/fetch-retry');
 
 const WEB_DIR = __dirname;
 const PUBLIC_DIR = path.join(WEB_DIR, 'public');
-const REPORTS_DIR = path.resolve(WEB_DIR, '..', '..', 'api-test-reports');
+const REPORTS_DIR = path.resolve(WEB_DIR, '..', '..', 'devman-api-reports');
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -136,8 +136,8 @@ async function handleSaveReport(req, res) {
     return sendJson(res, 400, { error: `bad request body: ${e.message}` });
   }
 
-  const rawName = (payload.name || 'api-test-studio').trim();
-  const safeName = rawName.replace(/[^a-zA-Z0-9_-]/g, '') || 'api-test-studio';
+  const rawName = (payload.name || 'devman-api').trim();
+  const safeName = rawName.replace(/[^a-zA-Z0-9_-]/g, '') || 'devman-api';
   const markdown = payload.markdown || '';
   const runId = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
 
@@ -162,7 +162,7 @@ const server = http.createServer(async (req, res) => {
 const port = Number(process.argv[2]) || 8787;
 fs.mkdirSync(REPORTS_DIR, { recursive: true });
 server.listen(port, '127.0.0.1', () => {
-  console.log(`API Test Studio running at http://127.0.0.1:${port}`);
+  console.log(`Devman API running at http://127.0.0.1:${port}`);
   console.log(`Reports saved to ${REPORTS_DIR}`);
   const jqCheck = spawnSync('jq', ['--version']);
   if (jqCheck.error) {
