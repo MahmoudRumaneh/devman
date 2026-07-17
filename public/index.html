@@ -159,17 +159,19 @@ GET /admin/courses/queue?tab=PENDING"></textarea>
   </main>
 
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
-  <aside id="runFailureAlert" class="run-failure-alert" role="alert" aria-live="assertive" hidden>
-    <div class="run-failure-icon" aria-hidden="true">!</div>
-    <div class="run-failure-content">
-      <span id="runFailureEyebrow" class="run-failure-eyebrow">Run paused</span>
-      <strong id="runFailureTitle">Endpoint failed</strong>
-      <code id="runFailureEndpoint" class="run-failure-endpoint"></code>
-      <span id="runFailureReason" class="run-failure-reason"></span>
-      <button id="runFailureViewBtn" class="run-failure-view" type="button">View response details</button>
-    </div>
-    <button id="runFailureClose" class="run-failure-close" type="button" aria-label="Dismiss failure alert">×</button>
-  </aside>
+  <div id="runFailureBackdrop" class="modal-backdrop run-failure-backdrop" hidden>
+    <aside id="runFailureAlert" class="run-failure-alert" role="alert" aria-live="assertive" aria-labelledby="runFailureTitle" aria-describedby="runFailureReason">
+      <div class="run-failure-icon" aria-hidden="true">!</div>
+      <div class="run-failure-content">
+        <span id="runFailureEyebrow" class="run-failure-eyebrow">Run paused</span>
+        <strong id="runFailureTitle">Endpoint failed</strong>
+        <code id="runFailureEndpoint" class="run-failure-endpoint"></code>
+        <span id="runFailureReason" class="run-failure-reason"></span>
+        <button id="runFailureViewBtn" class="run-failure-view" type="button">View response details</button>
+      </div>
+      <button id="runFailureClose" class="run-failure-close" type="button" aria-label="Dismiss failure alert">×</button>
+    </aside>
+  </div>
   <button id="backToTopBtn" class="back-to-top" type="button" hidden>↑</button>
   <div id="confirmModal" class="modal-backdrop" hidden>
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">

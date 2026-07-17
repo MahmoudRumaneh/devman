@@ -2664,11 +2664,18 @@ body.modal-open {
 }
 
 /* Run-all failure guidance. */
-.run-failure-alert {
-  position: fixed;
-  inset-block-start: 82px;
-  inset-inline-end: max(16px, calc((100vw - 1100px) / 2));
+.run-failure-backdrop {
   z-index: 90;
+  opacity: 0;
+  transition: opacity 0.18s ease;
+}
+
+.run-failure-backdrop.is-visible {
+  opacity: 1;
+}
+
+.run-failure-alert {
+  position: relative;
   width: min(430px, calc(100vw - 32px));
   display: grid;
   grid-template-columns: 42px minmax(0, 1fr) 28px;
@@ -2684,17 +2691,11 @@ body.modal-open {
   box-shadow:
     0 22px 55px color-mix(in srgb, var(--text) 18%, transparent),
     0 4px 14px color-mix(in srgb, var(--red) 13%, transparent);
-  opacity: 0;
-  transform: translateY(-12px) scale(0.985);
-  transition: opacity 0.18s ease, transform 0.24s cubic-bezier(0.2, 0.8, 0.2, 1);
+  transform: translateY(12px) scale(0.975);
+  transition: transform 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
-.run-failure-alert[hidden] {
-  display: none;
-}
-
-.run-failure-alert.is-visible {
-  opacity: 1;
+.run-failure-backdrop.is-visible .run-failure-alert {
   transform: translateY(0) scale(1);
 }
 
@@ -2843,10 +2844,12 @@ body.modal-open {
 }
 
 @media (max-width: 640px) {
+  .run-failure-backdrop {
+    padding: 12px;
+  }
+
   .run-failure-alert {
-    inset-block-start: 68px;
-    inset-inline: 12px;
-    width: auto;
+    width: 100%;
     grid-template-columns: 36px minmax(0, 1fr) 26px;
     gap: 10px;
     padding: 13px;
@@ -2866,6 +2869,7 @@ body.modal-open {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .run-failure-backdrop,
   .run-failure-alert {
     transition: none;
   }

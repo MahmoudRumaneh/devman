@@ -481,12 +481,12 @@
   let highlightedFailureRowId = null;
 
   function hideRunFailureAlert() {
-    const alert = el('runFailureAlert');
-    if (!alert || alert.hidden) return;
+    const backdrop = el('runFailureBackdrop');
+    if (!backdrop || backdrop.hidden) return;
     clearTimeout(failureAlertTimer);
     clearTimeout(failureAlertHideTimer);
-    alert.classList.remove('is-visible');
-    failureAlertHideTimer = window.setTimeout(() => { alert.hidden = true; }, 180);
+    backdrop.classList.remove('is-visible');
+    failureAlertHideTimer = window.setTimeout(() => { backdrop.hidden = true; }, 180);
   }
 
   function failedRequestReason(row) {
@@ -569,7 +569,8 @@
 
   function showRunFailureAlert(row, outcome) {
     const alert = el('runFailureAlert');
-    if (!alert) return;
+    const backdrop = el('runFailureBackdrop');
+    if (!alert || !backdrop) return;
 
     clearTimeout(failureAlertTimer);
     clearTimeout(failureAlertHideTimer);
@@ -579,12 +580,18 @@
       : 'Endpoint check failed';
     el('runFailureEndpoint').textContent = `${row.method} ${row.path || '/'}`;
     el('runFailureReason').textContent = failedRequestReason(row);
-    el('runFailureViewBtn').onclick = () => focusFailedEndpoint(row);
+    el('runFailureViewBtn').onclick = () => {
+      hideRunFailureAlert();
+      focusFailedEndpoint(row);
+    };
     el('runFailureClose').onclick = hideRunFailureAlert;
+    backdrop.onclick = (event) => {
+      if (event.target === backdrop) hideRunFailureAlert();
+    };
 
-    alert.hidden = false;
-    alert.classList.remove('is-visible');
-    window.requestAnimationFrame(() => alert.classList.add('is-visible'));
+    backdrop.hidden = false;
+    backdrop.classList.remove('is-visible');
+    window.requestAnimationFrame(() => backdrop.classList.add('is-visible'));
     failureAlertTimer = window.setTimeout(hideRunFailureAlert, FAILURE_ALERT_DURATION_MS);
   }
 
