@@ -8,6 +8,9 @@
   const RETRYABLE_PROXY_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
   const PROXY_MAX_ATTEMPTS = 3;
   const PROXY_RETRY_DELAY_MS = 250;
+  const FAILURE_ALERT_DURATION_MS = 9000;
+  const FAILURE_HIGHLIGHT_DURATION_MS = 2600;
+  const RUN_MODE = Object.freeze({ ALL: 'all', SINGLE: 'single' });
   const ICONS = {
     copy: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M15 9V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h3"></path></svg>',
     check: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"></path></svg>',
@@ -470,6 +473,124 @@
     t.hidden = false;
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => { t.hidden = true; }, 4000);
+  }
+
+  let failureAlertTimer;
+  let failureAlertHideTimer;
+  let failureHighlightTimer;
+  let highlightedFailureRowId = null;
+
+  function hideRunFailureAlert() {
+    const alert = el('runFailureAlert');
+    if (!alert || alert.hidden) return;
+    clearTimeout(failureAlertTimer);
+    clearTimeout(failureAlertHideTimer);
+    alert.classList.remove('is-visible');
+    failureAlertHideTimer = window.setTimeout(() => { alert.hidden = true; }, 180);
+  }
+
+  function failedRequestReason(row) {
+    const result = row.result;
+    if (!result || result.status === 0) {
+      try {
+        const parsed = JSON.parse(result?.respBody || '');
+        if (isRecord(parsed) && typeof parsed.error === 'string' && parsed.error.trim()) {
+          return parsed.error.trim();
+        }
+      } catch (_) {
+        // Use the stable network-error message below for non-JSON responses.
+      }
+      return 'No HTTP response was received. Check the connection and endpoint availability.';
+    }
+
+    if (!statusMatches(result.status, row.expect)) {
+      return `Received HTTP ${result.status}; expected ${row.expect.trim() || 'a successful response'}.`;
+    }
+    if ((row.assert || []).length) {
+      return `HTTP ${result.status} was received, but a response assertion did not pass.`;
+    }
+    return `The endpoint returned HTTP ${result.status} and did not meet its configured expectation.`;
+  }
+
+  function findRenderedRow(rowId) {
+    return [...document.querySelectorAll('.request-card')]
+      .find((rowElement) => rowElement.dataset.rowId === rowId);
+  }
+
+  function clearFailureHighlight() {
+    clearTimeout(failureHighlightTimer);
+    highlightedFailureRowId = null;
+    document.querySelectorAll('.request-card.run-failure-focus').forEach((rowElement) => {
+      rowElement.classList.remove('run-failure-focus');
+      rowElement.removeAttribute('tabindex');
+    });
+  }
+
+  function focusFailedEndpoint(row) {
+    if (state.endpointSearch && !rowMatchesSearch(row)) {
+      state.endpointSearch = '';
+      const searchInput = el('endpointSearch');
+      if (searchInput) searchInput.value = '';
+      saveDebounced();
+    }
+
+    row.expanded = true;
+    clearFailureHighlight();
+    highlightedFailureRowId = row.id;
+    renderRows();
+
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        const rowElement = findRenderedRow(row.id);
+        if (!rowElement) return;
+
+        rowElement.classList.remove('run-failure-focus');
+        void rowElement.offsetWidth;
+        rowElement.classList.add('run-failure-focus');
+        rowElement.setAttribute('tabindex', '-1');
+
+        const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        rowElement.scrollIntoView({
+          behavior: reduceMotion ? 'auto' : 'smooth',
+          block: 'center',
+          inline: 'nearest',
+        });
+        rowElement.focus({ preventScroll: true });
+
+        failureHighlightTimer = window.setTimeout(() => {
+          if (highlightedFailureRowId === row.id) highlightedFailureRowId = null;
+          const currentRowElement = findRenderedRow(row.id);
+          currentRowElement?.classList.remove('run-failure-focus');
+          currentRowElement?.removeAttribute('tabindex');
+        }, FAILURE_HIGHLIGHT_DURATION_MS);
+      });
+    });
+  }
+
+  function showRunFailureAlert(row, outcome) {
+    const alert = el('runFailureAlert');
+    if (!alert) return;
+
+    clearTimeout(failureAlertTimer);
+    clearTimeout(failureAlertHideTimer);
+    el('runFailureEyebrow').textContent = outcome === 'hardfail' ? 'Run paused' : 'Run continuing';
+    el('runFailureTitle').textContent = row.result?.state === 'error'
+      ? 'Could not reach endpoint'
+      : 'Endpoint check failed';
+    el('runFailureEndpoint').textContent = `${row.method} ${row.path || '/'}`;
+    el('runFailureReason').textContent = failedRequestReason(row);
+    el('runFailureViewBtn').onclick = () => focusFailedEndpoint(row);
+    el('runFailureClose').onclick = hideRunFailureAlert;
+
+    alert.hidden = false;
+    alert.classList.remove('is-visible');
+    window.requestAnimationFrame(() => alert.classList.add('is-visible'));
+    failureAlertTimer = window.setTimeout(hideRunFailureAlert, FAILURE_ALERT_DURATION_MS);
+  }
+
+  function revealRunFailure(row, outcome) {
+    focusFailedEndpoint(row);
+    showRunFailureAlert(row, outcome);
   }
 
   async function writeClipboard(text) {
@@ -1063,6 +1184,7 @@
     const wrap = document.createElement('div');
     wrap.className = 'request-card';
     wrap.dataset.rowId = row.id;
+    if (row.id === highlightedFailureRowId) wrap.classList.add('run-failure-focus');
     wireRowDrop(wrap, row);
 
     const dragCell = document.createElement('div');
@@ -1208,7 +1330,10 @@
     runOneBtn.textContent = 'Run';
     runOneBtn.title = 'Run this endpoint';
     runOneBtn.disabled = runInProgress;
-    runOneBtn.addEventListener('click', () => runStaged([row], false));
+    runOneBtn.addEventListener('click', () => runStaged([row], {
+      resetVars: false,
+      mode: RUN_MODE.SINGLE,
+    }));
     const removeBtn = document.createElement('button');
     removeBtn.className = 'row-remove';
     removeBtn.textContent = '×';
@@ -1621,13 +1746,17 @@
     el('rowsList')?.setAttribute('aria-busy', String(runInProgress));
   }
 
-  async function runStaged(rows, resetVars) {
+  async function runStaged(rows, { resetVars, mode }) {
     if (runInProgress) {
       toast('Wait for the current run to finish');
       return;
     }
 
     runInProgress = true;
+    if (mode === RUN_MODE.ALL) {
+      hideRunFailureAlert();
+      clearFailureHighlight();
+    }
     syncRunControls();
     try {
       seedVars(resetVars);
@@ -1655,6 +1784,9 @@
           const outcome = await evaluateAndCapture(row, fetched);
           updateRowResult(row);
           updateSummary();
+          if (mode === RUN_MODE.ALL && (outcome === 'hardfail' || outcome === 'fail-continue')) {
+            revealRunFailure(row, outcome);
+          }
           if (outcome === 'hardfail') stopped = true;
         }
       }
@@ -1944,7 +2076,10 @@
   }
 
   function bindRunBar() {
-    el('runAllBtn').addEventListener('click', () => runStaged(state.rows, true));
+    el('runAllBtn').addEventListener('click', () => runStaged(state.rows, {
+      resetVars: true,
+      mode: RUN_MODE.ALL,
+    }));
     el('saveReportBtn').addEventListener('click', saveReport);
   }
 
