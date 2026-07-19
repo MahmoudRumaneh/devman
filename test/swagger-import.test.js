@@ -187,8 +187,10 @@ test('discovers and imports an embedded document through a Swagger UI page', asy
     ['https://example.com/api/docs', '<script src="./docs/swagger-ui-init.js"></script>'],
     ['https://example.com/api/docs/swagger-ui-init.js', `const options = ${JSON.stringify({ swaggerDoc: SAMPLE_DOCUMENT })};`],
   ]);
-  const fetchImplementation = async (input) => {
+  const requests = [];
+  const fetchImplementation = async (input, init) => {
     const url = input.toString();
+    requests.push({ url, init });
     const body = pages.get(url);
     return new Response(body || 'not found', {
       status: body ? 200 : 404,
@@ -203,4 +205,7 @@ test('discovers and imports an embedded document through a Swagger UI page', asy
 
   assert.equal(imported.title, 'Pet API');
   assert.equal(imported.operations.length, 2);
+  assert.ok(requests.length >= 2);
+  assert.ok(requests.every(({ init }) => init.cache === 'no-store'));
+  assert.ok(requests.every(({ init }) => init.headers['Cache-Control'] === 'no-cache'));
 });

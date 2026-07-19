@@ -68,9 +68,17 @@
         <div>
           <h2>Workspace</h2>
           <p>Build the flow, run it, and inspect each request without leaving the page.</p>
+          <div id="swaggerSourceStatus" class="swagger-source-status" role="status" aria-live="polite" hidden>
+            <span class="swagger-source-status-dot" aria-hidden="true"></span>
+            <span id="swaggerSourceStatusText"></span>
+          </div>
         </div>
         <div class="workspace-actions">
           <button id="swaggerImportBtn" class="btn primary" type="button" aria-haspopup="dialog" aria-controls="swaggerImportModal">Import Swagger</button>
+          <button id="swaggerRefreshBtn" class="btn ghost swagger-refresh-btn" type="button" hidden>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5"></path><path d="M4 17v-5h5"></path><path d="M6.1 9A7 7 0 0 1 18 6.2L20 12M4 12l2 5.8A7 7 0 0 0 17.9 15"></path></svg>
+            <span>Refresh Swagger</span>
+          </button>
           <button id="importBtn" class="btn ghost" type="button">Import JSON / suite</button>
           <button id="templateBtn" class="btn ghost" type="button">Download template</button>
           <button id="exportBtn" class="btn ghost" type="button">Export JSON</button>
@@ -381,7 +389,7 @@ curl 'https://api.example.com/users' \
         <p id="swaggerImportIntro" class="swagger-import-intro">Paste a Swagger UI page or a direct OpenAPI JSON/YAML URL. Devman API will discover the spec and create request-ready endpoint rows.</p>
         <label class="field swagger-url-field" for="swaggerUrl">
           <span>Swagger or OpenAPI URL</span>
-          <input id="swaggerUrl" type="url" inputmode="url" autocomplete="url" required placeholder="https://api.example.com/api/docs" />
+          <input id="swaggerUrl" type="url" inputmode="url" autocomplete="url" dir="ltr" required placeholder="https://api.example.com/api/docs" />
         </label>
         <div class="swagger-import-options">
           <div class="field">

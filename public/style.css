@@ -911,11 +911,87 @@ body {
   font-size: 13px;
 }
 
+.workspace-head > div:first-child {
+  min-width: 0;
+}
+
+.swagger-source-status {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: fit-content;
+  max-width: 100%;
+  margin-top: 9px;
+  color: var(--text-muted);
+  font-size: 11.5px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.swagger-source-status[hidden],
+.swagger-refresh-btn[hidden] {
+  display: none;
+}
+
+.swagger-source-status-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 15%, transparent);
+}
+
+.swagger-source-status.is-loading {
+  color: var(--accent);
+}
+
+.swagger-source-status.is-loading .swagger-source-status-dot {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent);
+  animation: swagger-source-pulse 1.1s ease-in-out infinite;
+}
+
+.swagger-source-status.has-error {
+  color: var(--red);
+}
+
+.swagger-source-status.has-error .swagger-source-status-dot {
+  background: var(--red);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--red) 15%, transparent);
+}
+
 .workspace-actions {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.swagger-refresh-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--border));
+}
+
+.swagger-refresh-btn svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.swagger-refresh-btn.is-loading svg {
+  animation: swagger-import-spin 0.75s linear infinite;
+}
+
+@keyframes swagger-source-pulse {
+  50% { opacity: 0.45; transform: scale(0.82); }
 }
 
 .workspace-card > .hint,
@@ -2256,6 +2332,11 @@ select:focus {
 @media (prefers-reduced-motion: reduce) {
   .lane-collapse-toggle span {
     transition: none;
+  }
+
+  .swagger-source-status.is-loading .swagger-source-status-dot,
+  .swagger-refresh-btn.is-loading svg {
+    animation: none;
   }
 }
 

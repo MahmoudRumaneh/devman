@@ -17,6 +17,9 @@
   const FAILURE_HIGHLIGHT_DURATION_MS = 2600;
   const RUN_MODE = Object.freeze({ ALL: 'all', GROUPS: 'groups', SINGLE: 'single' });
   const SWAGGER_IMPORT_MODE = Object.freeze({ REPLACE: 'replace', APPEND: 'append' });
+  const IMPORT_SOURCE_TYPE = Object.freeze({ SWAGGER: 'swagger' });
+  const SWAGGER_REFRESH_PHASE = Object.freeze({ IDLE: 'idle', LOADING: 'loading', ERROR: 'error' });
+  const NO_AUTH_PROFILE = 'none';
   const JSON_IMPORT_ACTION = Object.freeze({ REPLACE: 'replace', APPEND: 'append' });
   const ROW_PANEL = Object.freeze({ NONE: '', BODY: 'body', HEADERS: 'headers', RESPONSE: 'response' });
   const ROW_PANEL_VALUES = new Set(Object.values(ROW_PANEL));
@@ -103,6 +106,7 @@
     laneOrder: [], // array of lane ids, in the order they execute — this replaces numeric "stage"
     laneMeta: {}, // lane id -> stable display name and collapsed state
     endpointSearch: '',
+    swaggerSource: null,
   };
 
   // Static vars seeded from an imported suite's top-level "vars" object.
@@ -117,6 +121,8 @@
   const selectedLaneIds = new Set();
   const searchCollapsedLaneIds = new Set();
   let previousEndpointSearch = '';
+  let swaggerRefreshPhase = SWAGGER_REFRESH_PHASE.IDLE;
+  let swaggerRefreshError = '';
 
   let nextId = 1;
   const newRowId = () => `r${nextId++}`;
@@ -164,6 +170,9 @@
     if (!ROW_PANEL_VALUES.has(row.activePanel)) row.activePanel = ROW_PANEL.NONE;
     if (row.expanded && row.activePanel === ROW_PANEL.NONE) row.activePanel = ROW_PANEL.BODY;
     if (row.activePanel === ROW_PANEL.RESPONSE && !row.result) row.activePanel = ROW_PANEL.NONE;
+    const importSource = normalizeImportSource(row.importSource);
+    if (importSource) row.importSource = importSource;
+    else delete row.importSource;
     delete row.expanded;
     return row;
   }
@@ -276,6 +285,7 @@
       laneOrder: state.laneOrder,
       laneMeta: state.laneMeta,
       endpointSearch: state.endpointSearch,
+      swaggerSource: state.swaggerSource,
       rows: state.rows.map(({ result, ...rest }) => rest),
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
@@ -315,6 +325,38 @@
 
   function isRecord(value) {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
+  }
+
+  function normalizeHttpUrl(value) {
+    if (typeof value !== 'string' || !value.trim()) return '';
+    try {
+      const parsedUrl = new URL(value.trim());
+      return ['http:', 'https:'].includes(parsedUrl.protocol) ? parsedUrl.href : '';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  function normalizeImportSource(value) {
+    if (!isRecord(value) || value.type !== IMPORT_SOURCE_TYPE.SWAGGER) return null;
+    const url = normalizeHttpUrl(value.url);
+    return url ? { type: IMPORT_SOURCE_TYPE.SWAGGER, url } : null;
+  }
+
+  function normalizeSwaggerSource(value) {
+    if (!isRecord(value)) return null;
+    const url = normalizeHttpUrl(value.url);
+    if (!url) return null;
+    return {
+      url,
+      title: typeof value.title === 'string' ? value.title.trim() : '',
+      version: typeof value.version === 'string' ? value.version.trim() : '',
+      authProfileKey: typeof value.authProfileKey === 'string' && value.authProfileKey
+        ? value.authProfileKey
+        : NO_AUTH_PROFILE,
+      setBaseUrl: typeof value.setBaseUrl === 'boolean' ? value.setBaseUrl : true,
+      lastSyncedAt: typeof value.lastSyncedAt === 'string' ? value.lastSyncedAt : '',
+    };
   }
 
   function importedTokenProfileKey(varName) {
@@ -620,6 +662,7 @@
       state.laneOrder = Array.isArray(parsed.laneOrder) ? parsed.laneOrder : [];
       state.laneMeta = normalizeLaneMeta(parsed.laneMeta, state.laneOrder);
       state.endpointSearch = parsed.endpointSearch || '';
+      state.swaggerSource = normalizeSwaggerSource(parsed.swaggerSource);
       state.rows = (parsed.rows || []).map((r) => emptyRow(r));
       if (!state.laneOrder.length && state.rows.length) {
         const id = newLaneId();
@@ -1568,7 +1611,7 @@
     if (!isRecord(parsed)) throw new Error('The JSON root must be an object');
     const importedTokenCount = importTokenConfiguration(parsed);
     if (Array.isArray(parsed.steps)) {
-      return { ...importEngineSuite(parsed), importedTokenCount, tokensOnly: false };
+      return { ...importEngineSuite(parsed), importedTokenCount, tokensOnly: false, swaggerSource: null };
     }
 
     state.baseUrl = parsed.baseUrl ?? state.baseUrl;
@@ -1582,6 +1625,7 @@
         laneMeta: state.laneMeta,
         importedTokenCount,
         tokensOnly: isRecord(parsed.tokens),
+        swaggerSource: state.swaggerSource,
       };
     }
 
@@ -1601,7 +1645,14 @@
       rows.forEach((r) => { if (!r.laneId) r.laneId = laneOrder[0]; });
     }
     const laneMeta = normalizeLaneMeta(parsed.laneMeta ?? parsed.lane_meta, laneOrder);
-    return { rows, laneOrder, laneMeta, importedTokenCount, tokensOnly: false };
+    return {
+      rows,
+      laneOrder,
+      laneMeta,
+      importedTokenCount,
+      tokensOnly: false,
+      swaggerSource: normalizeSwaggerSource(parsed.swaggerSource),
+    };
   }
 
   function importEngineSuite(parsed) {
@@ -1789,6 +1840,7 @@
     const persistedRow = { ...row };
     delete persistedRow.id;
     delete persistedRow.result;
+    delete persistedRow.importSource;
     const clone = typeof structuredClone === 'function'
       ? structuredClone(persistedRow)
       : JSON.parse(JSON.stringify(persistedRow));
@@ -2398,11 +2450,12 @@
 
   function syncWorkspaceAvailability() {
     const isWorkspaceEmpty = !state.rows.length && !state.laneOrder.length;
+    const isSwaggerRefreshing = swaggerRefreshPhase === SWAGGER_REFRESH_PHASE.LOADING;
     const rowsHeader = el('rowsHeader');
     const clearWorkspaceButton = el('clearAllBtn');
     if (rowsHeader) rowsHeader.hidden = !state.rows.length;
     if (clearWorkspaceButton) {
-      clearWorkspaceButton.disabled = runInProgress || isWorkspaceEmpty;
+      clearWorkspaceButton.disabled = runInProgress || isSwaggerRefreshing || isWorkspaceEmpty;
       clearWorkspaceButton.title = isWorkspaceEmpty
         ? 'The workspace is already clear'
         : 'Remove every endpoint and group';
@@ -3762,8 +3815,14 @@
       if (labelElement) labelElement.textContent = label;
     };
     const runAllButton = el('runAllBtn');
+    const isSwaggerRefreshing = swaggerRefreshPhase === SWAGGER_REFRESH_PHASE.LOADING;
+    const isWorkspaceBusy = runInProgress || isSwaggerRefreshing;
+    const swaggerImportButton = el('swaggerImportBtn');
+    if (swaggerImportButton) {
+      swaggerImportButton.disabled = runInProgress || swaggerRefreshPhase === SWAGGER_REFRESH_PHASE.LOADING;
+    }
     if (runAllButton) {
-      runAllButton.disabled = !runInProgress && !state.rows.length;
+      runAllButton.disabled = isSwaggerRefreshing || (!runInProgress && !state.rows.length);
       runAllButton.textContent = runInProgress ? 'Stop run' : 'Run all';
       runAllButton.classList.toggle('danger', runInProgress);
       runAllButton.classList.toggle('primary', !runInProgress);
@@ -3773,12 +3832,12 @@
       const laneId = button.closest('.stage-lane')?.dataset.laneId;
       const hasRows = state.rows.some((row) => row.laneId === laneId);
       const isActive = runInProgress && activeRunLaneId === laneId;
-      button.disabled = runInProgress || !hasRows;
+      button.disabled = isWorkspaceBusy || !hasRows;
       setLabel(button, isActive ? 'Running…' : 'Run');
     });
     document.querySelectorAll('.run-selected-groups-btn').forEach((button) => {
       const hasSelectedRows = rowsForLaneIds(selectedLaneIds).length > 0;
-      button.disabled = runInProgress || !hasSelectedRows;
+      button.disabled = isWorkspaceBusy || !hasSelectedRows;
       setLabel(button, runInProgress ? 'Running…' : 'Run selected');
     });
     document.querySelectorAll([
@@ -3788,10 +3847,11 @@
       '.lane-select-toggle',
       '.lane-remove',
     ].join(',')).forEach((button) => {
-      button.disabled = runInProgress;
+      button.disabled = isWorkspaceBusy;
     });
     syncTokenCardActions();
-    el('rowsList')?.setAttribute('aria-busy', String(runInProgress));
+    syncSwaggerSourceUi();
+    el('rowsList')?.setAttribute('aria-busy', String(isWorkspaceBusy));
   }
 
   function activateRunLane(laneId) {
@@ -3821,6 +3881,10 @@
   }
 
   async function runStaged(rows, { resetVars, mode }) {
+    if (swaggerRefreshPhase === SWAGGER_REFRESH_PHASE.LOADING) {
+      toast('Wait for the Swagger refresh to finish');
+      return;
+    }
     if (runInProgress) {
       toast('Wait for the current run to finish');
       return;
@@ -4050,6 +4114,7 @@
       tokenProfiles: state.tokenProfiles.map((profile) => ({ ...profile })),
       suiteStaticVars: { ...suiteStaticVars },
       laneMeta: normalizeLaneMeta(state.laneMeta, state.laneOrder),
+      swaggerSource: state.swaggerSource,
     };
   }
 
@@ -4092,6 +4157,7 @@
     state.tokenProfiles = mergedProfiles;
     state.tokens = mergedTokens;
     state.laneMeta = current.laneMeta;
+    state.swaggerSource = current.swaggerSource;
     suiteStaticVars = { ...importedStaticVars, ...current.suiteStaticVars };
   }
 
@@ -4144,7 +4210,7 @@
         ? captureWorkspaceForAppend()
         : null;
       const isSuite = Array.isArray(parsed.steps);
-      const { rows, laneOrder, laneMeta, importedTokenCount, tokensOnly } = importParsedJson(parsed);
+      const { rows, laneOrder, laneMeta, importedTokenCount, tokensOnly, swaggerSource } = importParsedJson(parsed);
       let importedRowCount = rows.length;
       if (appendSnapshot && !tokensOnly) {
         restoreConfigurationAfterAppend(appendSnapshot, rows);
@@ -4154,12 +4220,14 @@
         state.rows = rows;
         state.laneOrder = laneOrder;
         state.laneMeta = normalizeLaneMeta(laneMeta, laneOrder);
+        if (!tokensOnly) state.swaggerSource = swaggerSource;
       }
       if (!tokensOnly) selectedLaneIds.clear();
       syncConnectionInputs();
       seedVars(true);
       renderRows();
       save();
+      syncSwaggerSourceUi();
       const tokenSummary = importedTokenCount
         ? ` · ${importedTokenCount} token${importedTokenCount === 1 ? '' : 's'}`
         : '';
@@ -4184,7 +4252,7 @@
     select.innerHTML = '';
 
     const noTokenOption = document.createElement('option');
-    noTokenOption.value = 'none';
+    noTokenOption.value = NO_AUTH_PROFILE;
     noTokenOption.textContent = 'No token (leave unassigned)';
     noTokenOption.dataset.description = 'Secured endpoints will not receive an Authorization header';
     select.appendChild(noTokenOption);
@@ -4197,10 +4265,10 @@
       select.appendChild(option);
     });
 
-    const preferredValue = previousValue || 'none';
+    const preferredValue = previousValue || NO_AUTH_PROFILE;
     select.value = [...select.options].some((option) => option.value === preferredValue)
       ? preferredValue
-      : 'none';
+      : NO_AUTH_PROFILE;
     refreshSharedSelect(select);
   }
 
@@ -4210,7 +4278,7 @@
         typeof operation.method === 'string' && typeof operation.path === 'string');
   }
 
-  function swaggerOperationToRow(operation, laneId, authProfile) {
+  function swaggerOperationToRow(operation, laneId, authProfile, sourceUrl) {
     const isSecured = operation.secured === true;
     const tags = Array.isArray(operation.tags) ? operation.tags.map(String).filter(Boolean) : [];
     const summary = typeof operation.summary === 'string' ? operation.summary.trim() : '';
@@ -4219,7 +4287,7 @@
       laneId,
       method: operation.method.toUpperCase(),
       path: operation.path,
-      role: isSecured && authProfile ? authProfile.key : 'none',
+      role: isSecured && authProfile ? authProfile.key : NO_AUTH_PROFILE,
       authVar: isSecured && authProfile ? authProfile.varName : '',
       headers: isRecord(operation.headers) ? operation.headers : {},
       body: typeof operation.body === 'string' ? operation.body : '',
@@ -4228,6 +4296,7 @@
       binaryFile: normalizeFileMetadata(operation.binaryFile),
       expect: typeof operation.expect === 'string' ? operation.expect : '',
       note: noteParts.join(' · '),
+      importSource: { type: IMPORT_SOURCE_TYPE.SWAGGER, url: sourceUrl },
     });
   }
 
@@ -4239,8 +4308,207 @@
     return primaryTag?.trim() || 'Other';
   }
 
+  function swaggerEndpointKey(value) {
+    return `${String(value.method || '').toUpperCase()} ${String(value.path || '')}`;
+  }
+
+  function isRowFromSwaggerSource(row, sourceUrl) {
+    const source = normalizeImportSource(row.importSource);
+    return source?.url === sourceUrl;
+  }
+
+  function transferSwaggerFiles(previousRow, nextRow) {
+    if (!previousRow) return;
+    const binaryFile = getSelectedFile(previousRow);
+    if (binaryFile) setSelectedFile(nextRow, binaryFile);
+
+    nextRow.formData.forEach((nextPart) => {
+      const previousPart = previousRow.formData.find((part) =>
+        part.name === nextPart.name && part.kind === nextPart.kind);
+      if (!previousPart) return;
+      const file = getSelectedFile(previousRow, previousPart.id);
+      if (file) setSelectedFile(nextRow, file, nextPart.id);
+    });
+  }
+
+  function syncSwaggerSourceUi() {
+    const button = el('swaggerRefreshBtn');
+    const status = el('swaggerSourceStatus');
+    const statusText = el('swaggerSourceStatusText');
+    if (!button || !status || !statusText) return;
+
+    const source = normalizeSwaggerSource(state.swaggerSource);
+    const isLoading = swaggerRefreshPhase === SWAGGER_REFRESH_PHASE.LOADING;
+    const hasError = swaggerRefreshPhase === SWAGGER_REFRESH_PHASE.ERROR;
+    button.hidden = !source;
+    status.hidden = !source;
+    button.disabled = !source || isLoading || runInProgress;
+    button.setAttribute('aria-busy', String(isLoading));
+    button.classList.toggle('is-loading', isLoading);
+    status.classList.toggle('is-loading', isLoading);
+    status.classList.toggle('has-error', hasError);
+    const buttonLabel = button.querySelector('span');
+    if (buttonLabel) buttonLabel.textContent = isLoading ? 'Refreshing…' : 'Refresh Swagger';
+    if (!source) return;
+
+    let host = source.url;
+    try { host = new URL(source.url).host; } catch (_) { /* URL was already validated. */ }
+    const apiName = source.title || host || 'Swagger';
+    const version = source.version
+      ? ` ${source.version.toLowerCase().startsWith('v') ? source.version : `v${source.version}`}`
+      : '';
+    if (isLoading) {
+      statusText.textContent = `Checking ${apiName}${version} for the latest endpoints…`;
+    } else if (hasError) {
+      statusText.textContent = 'Refresh failed · Your current workspace was not changed';
+    } else {
+      statusText.textContent = `${apiName}${version} · Synced from ${host}`;
+    }
+
+    const lastSynced = source.lastSyncedAt ? new Date(source.lastSyncedAt) : null;
+    const syncedLabel = lastSynced && !Number.isNaN(lastSynced.getTime())
+      ? `\nLast synced: ${lastSynced.toLocaleString()}`
+      : '';
+    const errorLabel = hasError && swaggerRefreshError ? `\n${swaggerRefreshError}` : '';
+    status.title = `${source.url}${syncedLabel}${errorLabel}`;
+    button.title = `Fetch the latest endpoints from ${source.url}`;
+    button.setAttribute('aria-label', `Refresh Swagger endpoints from ${host}`);
+  }
+
+  async function fetchSwaggerDocument(url, signal) {
+    const response = await fetch('/api/swagger-import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url }),
+      signal,
+    });
+    const rawResponse = await response.text();
+    let imported;
+    try {
+      imported = JSON.parse(rawResponse);
+    } catch (_) {
+      throw new Error(`Import service returned an invalid response (HTTP ${response.status})`);
+    }
+    if (!response.ok || !isSwaggerImportPayload(imported)) {
+      const message = isRecord(imported) && typeof imported.error === 'string'
+        ? imported.error
+        : 'The URL did not return a supported OpenAPI document';
+      throw new Error(message);
+    }
+    return imported;
+  }
+
+  function applySwaggerDocument(imported, options) {
+    const sourceUrl = normalizeHttpUrl(options.sourceUrl);
+    const isRefresh = options.isRefresh === true;
+    const mode = options.mode === SWAGGER_IMPORT_MODE.APPEND
+      ? SWAGGER_IMPORT_MODE.APPEND
+      : SWAGGER_IMPORT_MODE.REPLACE;
+    const authProfile = options.authProfileKey === NO_AUTH_PROFILE
+      ? null
+      : state.tokenProfiles.find((profile) => profile.key === options.authProfileKey) || null;
+    const previousSourceRows = isRefresh
+      ? state.rows.filter((row) => isRowFromSwaggerSource(row, sourceUrl))
+      : [];
+    const previousSourceRowByKey = new Map(previousSourceRows.map((row) => [swaggerEndpointKey(row), row]));
+    const retainedRows = isRefresh
+      ? state.rows.filter((row) => !isRowFromSwaggerSource(row, sourceUrl))
+      : mode === SWAGGER_IMPORT_MODE.APPEND ? [...state.rows] : [];
+    const existingKeys = new Set(retainedRows.map(swaggerEndpointKey));
+    const previousLaneOrder = isRefresh || mode === SWAGGER_IMPORT_MODE.APPEND
+      ? [...state.laneOrder]
+      : [];
+    const previousSourceLaneIds = new Set(previousSourceRows.map((row) => row.laneId));
+
+    if (!isRefresh && mode === SWAGGER_IMPORT_MODE.REPLACE) state.laneMeta = {};
+    const laneByGroupName = new Map();
+    previousLaneOrder.forEach((laneId, index) => {
+      laneByGroupName.set(laneDisplayName(laneId, index).toLocaleLowerCase(), laneId);
+    });
+
+    const importedLaneOrder = [];
+    const importedRows = [];
+    const touchedLaneIds = new Set();
+    let skippedCount = 0;
+    imported.operations.forEach((operation) => {
+      const key = swaggerEndpointKey(operation);
+      if (existingKeys.has(key)) {
+        skippedCount += 1;
+        return;
+      }
+      existingKeys.add(key);
+      const groupName = swaggerGroupName(operation);
+      const groupKey = groupName.toLocaleLowerCase();
+      let laneId = laneByGroupName.get(groupKey);
+      if (!laneId) {
+        laneId = newLaneId({ name: groupName, collapsed: true });
+        laneByGroupName.set(groupKey, laneId);
+        importedLaneOrder.push(laneId);
+      }
+      touchedLaneIds.add(laneId);
+      const row = swaggerOperationToRow(operation, laneId, authProfile, sourceUrl);
+      transferSwaggerFiles(previousSourceRowByKey.get(key), row);
+      importedRows.push(row);
+    });
+
+    if (isRefresh) {
+      previousSourceRows.forEach(clearSelectedFiles);
+      state.rows = [...retainedRows, ...importedRows];
+      const lanesWithRows = new Set(state.rows.map((row) => row.laneId));
+      state.laneOrder = [...previousLaneOrder, ...importedLaneOrder].filter((laneId) =>
+        lanesWithRows.has(laneId) || !previousSourceLaneIds.has(laneId));
+      const retainedLaneIds = new Set(state.laneOrder);
+      Object.keys(state.laneMeta).forEach((laneId) => {
+        if (!retainedLaneIds.has(laneId)) delete state.laneMeta[laneId];
+      });
+      selectedLaneIds.forEach((laneId) => {
+        if (!retainedLaneIds.has(laneId)) selectedLaneIds.delete(laneId);
+      });
+    } else if (mode === SWAGGER_IMPORT_MODE.REPLACE) {
+      selectedFiles.clear();
+      selectedLaneIds.clear();
+      state.rows = importedRows;
+      state.laneOrder = importedLaneOrder;
+      state.endpointSearch = '';
+      syncEndpointSearchControls();
+    } else {
+      state.rows.push(...importedRows);
+      state.laneOrder.push(...importedLaneOrder);
+    }
+    state.laneMeta = normalizeLaneMeta(state.laneMeta, state.laneOrder);
+
+    if (options.setBaseUrl && typeof imported.baseUrl === 'string' && imported.baseUrl) {
+      state.baseUrl = imported.baseUrl;
+      syncConnectionInputs();
+    }
+    state.swaggerSource = normalizeSwaggerSource({
+      url: sourceUrl,
+      title: typeof imported.title === 'string' ? imported.title : '',
+      version: typeof imported.version === 'string' ? imported.version : '',
+      authProfileKey: authProfile?.key || NO_AUTH_PROFILE,
+      setBaseUrl: options.setBaseUrl,
+      lastSyncedAt: new Date().toISOString(),
+    });
+
+    seedVars(true);
+    save();
+    renderRows();
+    syncSwaggerSourceUi();
+
+    const previousKeys = new Set(previousSourceRows.map(swaggerEndpointKey));
+    const importedKeys = new Set(importedRows.map(swaggerEndpointKey));
+    return {
+      importedCount: importedRows.length,
+      groupCount: touchedLaneIds.size,
+      skippedCount,
+      addedCount: [...importedKeys].filter((key) => !previousKeys.has(key)).length,
+      removedCount: [...previousKeys].filter((key) => !importedKeys.has(key)).length,
+    };
+  }
+
   function bindSwaggerImport() {
     const trigger = el('swaggerImportBtn');
+    const refreshButton = el('swaggerRefreshBtn');
     const modal = el('swaggerImportModal');
     const form = el('swaggerImportForm');
     const urlInput = el('swaggerUrl');
@@ -4248,9 +4516,10 @@
     const cancelButton = el('swaggerImportCancel');
     const submitButton = el('swaggerImportSubmit');
     const feedback = el('swaggerImportFeedback');
-    if (!trigger || !modal || !form || !urlInput || !closeButton || !cancelButton || !submitButton || !feedback) return;
+    if (!trigger || !refreshButton || !modal || !form || !urlInput || !closeButton || !cancelButton || !submitButton || !feedback) return;
 
-    let controller = null;
+    let modalController = null;
+    let refreshController = null;
     const defaultFeedback = 'Supports OpenAPI 3.x, Swagger 2.0, JSON, YAML, and embedded Swagger UI documents.';
 
     const setFeedback = (message, stateName = '') => {
@@ -4259,8 +4528,9 @@
       feedback.classList.toggle('has-error', stateName === 'error');
     };
 
-    const setLoading = (loading) => {
+    const setModalLoading = (loading) => {
       submitButton.disabled = loading;
+      refreshButton.disabled = loading || !state.swaggerSource;
       urlInput.disabled = loading;
       el('swaggerImportMode').disabled = loading;
       el('swaggerAuthProfile').disabled = loading;
@@ -4272,9 +4542,9 @@
     };
 
     const close = () => {
-      controller?.abort();
-      controller = null;
-      setLoading(false);
+      modalController?.abort();
+      modalController = null;
+      setModalLoading(false);
       modal.hidden = true;
       document.body.classList.remove('modal-open');
       document.removeEventListener('keydown', onKeydown);
@@ -4286,7 +4556,12 @@
     };
 
     trigger.addEventListener('click', () => {
+      if (runInProgress) {
+        toast('Wait for the current run to finish before importing Swagger');
+        return;
+      }
       populateSwaggerAuthProfiles();
+      if (!urlInput.value.trim() && state.swaggerSource?.url) urlInput.value = state.swaggerSource.url;
       setFeedback(defaultFeedback);
       modal.hidden = false;
       document.body.classList.add('modal-open');
@@ -4299,115 +4574,92 @@
       if (event.target === modal) close();
     });
 
+    refreshButton.addEventListener('click', async () => {
+      const source = normalizeSwaggerSource(state.swaggerSource);
+      if (!source || refreshController || runInProgress) return;
+
+      refreshController = new AbortController();
+      swaggerRefreshPhase = SWAGGER_REFRESH_PHASE.LOADING;
+      swaggerRefreshError = '';
+      trigger.disabled = true;
+      syncRunControls();
+      try {
+        const imported = await fetchSwaggerDocument(source.url, refreshController.signal);
+        if (normalizeSwaggerSource(state.swaggerSource)?.url !== source.url) {
+          throw new Error('The Swagger source changed while refreshing. Refresh again to use the current source.');
+        }
+        const result = applySwaggerDocument(imported, {
+          sourceUrl: source.url,
+          authProfileKey: source.authProfileKey,
+          setBaseUrl: source.setBaseUrl,
+          mode: SWAGGER_IMPORT_MODE.REPLACE,
+          isRefresh: true,
+        });
+        swaggerRefreshPhase = SWAGGER_REFRESH_PHASE.IDLE;
+        const changes = [
+          result.addedCount ? `${result.addedCount} added` : '',
+          result.removedCount ? `${result.removedCount} removed` : '',
+          result.skippedCount ? `${result.skippedCount} conflict${result.skippedCount === 1 ? '' : 's'} skipped` : '',
+        ].filter(Boolean);
+        const changeSummary = changes.length ? ` · ${changes.join(' · ')}` : ' · Latest version applied';
+        toast(`Swagger refreshed · ${result.importedCount} endpoint${result.importedCount === 1 ? '' : 's'} synced${changeSummary}`);
+      } catch (error) {
+        if (error?.name === 'AbortError') return;
+        swaggerRefreshPhase = SWAGGER_REFRESH_PHASE.ERROR;
+        swaggerRefreshError = error instanceof Error ? error.message : String(error);
+        toast(`Swagger refresh failed: ${swaggerRefreshError}`);
+      } finally {
+        refreshController = null;
+        trigger.disabled = false;
+        syncRunControls();
+      }
+    });
+
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
       const rawUrl = urlInput.value.trim();
+      let sourceUrl = '';
       try {
-        const parsedUrl = new URL(rawUrl);
-        if (!['http:', 'https:'].includes(parsedUrl.protocol)) throw new Error('Use an HTTP or HTTPS URL');
+        sourceUrl = normalizeHttpUrl(rawUrl);
+        if (!sourceUrl) throw new Error('Enter a complete Swagger URL, including https://');
       } catch (error) {
-        setFeedback(error instanceof Error && error.message !== 'Invalid URL'
-          ? error.message
-          : 'Enter a complete Swagger URL, including https://', 'error');
+        setFeedback(error instanceof Error ? error.message : 'Enter a complete Swagger URL, including https://', 'error');
         urlInput.focus();
         return;
       }
 
-      controller = new AbortController();
-      setLoading(true);
+      modalController = new AbortController();
+      setModalLoading(true);
       setFeedback('Finding the OpenAPI document and preparing endpoint rows…', 'loading');
       try {
-        const response = await fetch('/api/swagger-import', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url: rawUrl }),
-          signal: controller.signal,
-        });
-        const rawResponse = await response.text();
-        let imported;
-        try {
-          imported = JSON.parse(rawResponse);
-        } catch {
-          throw new Error(`Import service returned an invalid response (HTTP ${response.status})`);
-        }
-        if (!response.ok || !isSwaggerImportPayload(imported)) {
-          const message = isRecord(imported) && typeof imported.error === 'string'
-            ? imported.error
-            : 'The URL did not return a supported OpenAPI document';
-          throw new Error(message);
-        }
-
+        const imported = await fetchSwaggerDocument(sourceUrl, modalController.signal);
         const mode = el('swaggerImportMode').value;
         const selectedProfileKey = el('swaggerAuthProfile').value;
-        const authProfile = selectedProfileKey === 'none'
-          ? null
-          : state.tokenProfiles.find((profile) => profile.key === selectedProfileKey) || null;
-        const existingKeys = new Set(mode === SWAGGER_IMPORT_MODE.APPEND
-          ? state.rows.map((row) => `${row.method.toUpperCase()} ${row.path}`)
-          : []);
-        if (mode === SWAGGER_IMPORT_MODE.REPLACE) state.laneMeta = {};
-        const importedLaneOrder = [];
-        const laneByGroupName = new Map();
-        if (mode === SWAGGER_IMPORT_MODE.APPEND) {
-          state.laneOrder.forEach((laneId, index) => {
-            laneByGroupName.set(laneDisplayName(laneId, index).toLocaleLowerCase(), laneId);
-          });
-        }
-        const importedRows = [];
-        const touchedLaneIds = new Set();
-        let skippedCount = 0;
-        imported.operations.forEach((operation) => {
-          const key = `${operation.method.toUpperCase()} ${operation.path}`;
-          if (existingKeys.has(key)) {
-            skippedCount += 1;
-            return;
-          }
-          existingKeys.add(key);
-          const groupName = swaggerGroupName(operation);
-          const groupKey = groupName.toLocaleLowerCase();
-          let laneId = laneByGroupName.get(groupKey);
-          if (!laneId) {
-            laneId = newLaneId({ name: groupName, collapsed: true });
-            laneByGroupName.set(groupKey, laneId);
-            importedLaneOrder.push(laneId);
-          }
-          laneMetaFor(laneId).collapsed = true;
-          touchedLaneIds.add(laneId);
-          importedRows.push(swaggerOperationToRow(operation, laneId, authProfile));
+        const result = applySwaggerDocument(imported, {
+          sourceUrl,
+          authProfileKey: selectedProfileKey,
+          setBaseUrl: el('swaggerSetBaseUrl').checked,
+          mode,
+          isRefresh: false,
         });
-
-        if (mode === SWAGGER_IMPORT_MODE.REPLACE) {
-          selectedLaneIds.clear();
-          state.rows = importedRows;
-          state.laneOrder = importedLaneOrder;
-          state.laneMeta = normalizeLaneMeta(state.laneMeta, state.laneOrder);
-          state.endpointSearch = '';
-          syncEndpointSearchControls();
-        } else {
-          state.rows.push(...importedRows);
-          state.laneOrder.push(...importedLaneOrder);
-        }
-        if (el('swaggerSetBaseUrl').checked && typeof imported.baseUrl === 'string' && imported.baseUrl) {
-          state.baseUrl = imported.baseUrl;
-          syncConnectionInputs();
-        }
-
-        seedVars(true);
-        save();
+        swaggerRefreshPhase = SWAGGER_REFRESH_PHASE.IDLE;
+        swaggerRefreshError = '';
         close();
-        renderRows();
-        const skippedSummary = skippedCount ? ` · ${skippedCount} duplicate${skippedCount === 1 ? '' : 's'} skipped` : '';
-        const groupSummary = touchedLaneIds.size
-          ? ` in ${touchedLaneIds.size} group${touchedLaneIds.size === 1 ? '' : 's'}`
+        syncSwaggerSourceUi();
+        const skippedSummary = result.skippedCount ? ` · ${result.skippedCount} duplicate${result.skippedCount === 1 ? '' : 's'} skipped` : '';
+        const groupSummary = result.groupCount
+          ? ` in ${result.groupCount} group${result.groupCount === 1 ? '' : 's'}`
           : '';
-        toast(`Imported ${importedRows.length} endpoint${importedRows.length === 1 ? '' : 's'}${groupSummary} from ${imported.title || 'Swagger'}${skippedSummary}`);
+        toast(`Imported ${result.importedCount} endpoint${result.importedCount === 1 ? '' : 's'}${groupSummary} from ${imported.title || 'Swagger'}${skippedSummary}`);
       } catch (error) {
         if (error?.name === 'AbortError') return;
-        controller = null;
-        setLoading(false);
+        modalController = null;
+        setModalLoading(false);
         setFeedback(error instanceof Error ? error.message : String(error), 'error');
       }
     });
+
+    syncSwaggerSourceUi();
   }
 
   function downloadJson(name, data) {
@@ -4598,8 +4850,10 @@
       state.endpointSearch = '';
       state.laneMeta = {};
       state.laneOrder = [];
+      state.swaggerSource = null;
       renderRows();
       save();
+      syncSwaggerSourceUi();
       toast('Workspace cleared');
     });
 
@@ -4617,6 +4871,7 @@
           .map((profile) => ({ ...profile })),
         laneOrder: state.laneOrder,
         laneMeta: state.laneMeta,
+        swaggerSource: state.swaggerSource,
         rows: state.rows.map(({ result, ...rest }) => rest),
       };
       downloadJson(`${el('suiteName').value || DEFAULT_PROJECT_NAME}.json`, data);
