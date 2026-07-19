@@ -5228,9 +5228,11 @@ select.shared-select-native {
 
 .shared-select-value {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow: visible;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  line-height: 1.3;
 }
 
 .shared-select-chevron {
@@ -5336,7 +5338,8 @@ select.shared-select-native {
 .shared-select-option-copy strong {
   font-size: 12.5px;
   line-height: 1.3;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .shared-select-option-copy small {
@@ -5372,6 +5375,11 @@ select.shared-select-native {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 12px;
   letter-spacing: 0.03em;
+}
+
+.shared-select[data-variant="method"] .shared-select-value {
+  overflow-wrap: normal;
+  white-space: nowrap;
 }
 
 .shared-select[data-variant="method"] .shared-select-trigger[data-value="GET"] { --select-tone: var(--green); }
@@ -5923,7 +5931,7 @@ select.shared-select-native {
 
 /* Endpoint cards: give long routes a dedicated, readable line. */
 .request-main {
-  grid-template-columns: 92px 136px 92px minmax(180px, 210px) minmax(276px, 1fr);
+  grid-template-columns: 118px 136px 92px minmax(180px, 210px) minmax(276px, 1fr);
   gap: 10px 12px;
   align-items: center;
 }
@@ -6056,7 +6064,7 @@ select.shared-select-native {
 
 @media (max-width: 1080px) and (min-width: 861px) {
   .request-main {
-    grid-template-columns: 92px minmax(150px, 1fr) 96px minmax(96px, 1fr);
+    grid-template-columns: 118px minmax(150px, 1fr) 96px minmax(96px, 1fr);
   }
 
   .request-path {
@@ -6089,7 +6097,7 @@ select.shared-select-native {
 
 @media (max-width: 860px) {
   .request-main {
-    grid-template-columns: minmax(92px, 0.42fr) minmax(0, 1fr);
+    grid-template-columns: minmax(118px, 0.42fr) minmax(0, 1fr);
     gap: 10px;
     align-items: end;
   }
@@ -6191,6 +6199,42 @@ select.shared-select-native {
     clip: rect(0, 0, 0, 0);
     white-space: nowrap;
     border: 0;
+  }
+}
+
+@media (max-width: 360px) {
+  .request-main {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .request-path {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .request-method {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .request-main > .request-meta:nth-child(3) {
+    grid-column: 1;
+    grid-row: 3;
+  }
+
+  .request-main > .request-meta:nth-child(4) {
+    grid-column: 1;
+    grid-row: 4;
+  }
+
+  .result-cell {
+    grid-column: 1;
+    grid-row: 5;
+  }
+
+  .actions-cell {
+    grid-column: 1;
+    grid-row: 6;
   }
 }
 

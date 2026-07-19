@@ -10,6 +10,7 @@
   const DEFAULT_PROJECT_NAME = 'devman-api';
   const VERBS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'];
   const SAFE_RETRY_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+  const NETWORK_RETRY_METHODS = new Set([...SAFE_RETRY_METHODS, 'PUT', 'PATCH', 'DELETE']);
   const RETRYABLE_PROXY_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
   const PROXY_MAX_ATTEMPTS = 3;
   const PROXY_RETRY_DELAY_MS = 250;
@@ -3631,7 +3632,7 @@
   }
 
   async function callProxy(row, payload) {
-    const canRetry = SAFE_RETRY_METHODS.has(payload.method);
+    const canRetry = NETWORK_RETRY_METHODS.has(payload.method);
     const maxAttempts = canRetry ? PROXY_MAX_ATTEMPTS : 1;
 
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
@@ -3645,7 +3646,11 @@
         });
         if (response.headers.get('x-devman-proxy') !== 'upstream') {
           const error = new Error(await parseProxyError(response));
-          error.retryable = RETRYABLE_PROXY_STATUSES.has(response.status);
+          // The proxy already owns retries for update/delete operations. Only
+          // replay a returned proxy error here for read-only requests; network
+          // failures before a response still use the bounded loop above.
+          error.retryable = SAFE_RETRY_METHODS.has(payload.method) &&
+            RETRYABLE_PROXY_STATUSES.has(response.status);
           throw error;
         }
 
@@ -3767,7 +3772,7 @@
         reqUrl: request.url,
         reqHeaders: request.headers,
         reqBody: request.body,
-        body: JSON.stringify({ error: String(e) }),
+        body: JSON.stringify({ error: errorMessage(e) }),
       };
     }
   }
