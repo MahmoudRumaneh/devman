@@ -104,7 +104,7 @@
   const state = {
     baseUrl: 'https://api.example.com/v1',
     tenantId: '',
-    sendTenantHeader: true,
+    sendTenantHeader: false,
     tokens: Object.fromEntries(DEFAULT_TOKEN_PROFILES.map((profile) => [profile.key, ''])),
     tokenProfiles: DEFAULT_TOKEN_PROFILES.map((profile) => ({ ...profile })),
     rows: [],
@@ -675,7 +675,7 @@
       const parsed = JSON.parse(raw);
       state.baseUrl = parsed.baseUrl ?? state.baseUrl;
       state.tenantId = parsed.tenantId ?? '';
-      state.sendTenantHeader = parsed.sendTenantHeader ?? true;
+      state.sendTenantHeader = parsed.sendTenantHeader ?? false;
       state.tokens = { ...state.tokens, ...(parsed.tokens || {}) };
       state.tokenProfiles = normalizeTokenProfiles(parsed.tokenProfiles);
       suiteStaticVars = parsed.suiteStaticVars || {};
