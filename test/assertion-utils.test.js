@@ -2,7 +2,10 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { normalizeAssertions } = require('../public/assertion-utils');
+const {
+  isQueryParameterEchoAssertion,
+  normalizeAssertions,
+} = require('../public/assertion-utils');
 
 test('normalizes assertion arrays and removes unusable values', () => {
   assert.deepEqual(normalizeAssertions([' .data.id != null ', '', null, 42]), [
@@ -21,4 +24,30 @@ test('supports JSON-encoded assertion arrays from persisted imports', () => {
 test('uses no assertions for malformed non-string persisted values', () => {
   assert.deepEqual(normalizeAssertions({ filter: '.ok' }), []);
   assert.deepEqual(normalizeAssertions(null), []);
+});
+
+test('recognizes an assertion that only echoes its request query parameter', () => {
+  const requestUrl = 'https://api.example.com/revenue?timezone=Asia%2FAmman';
+
+  assert.equal(
+    isQueryParameterEchoAssertion('.data.timezone == "Asia/Amman"', requestUrl),
+    true,
+  );
+});
+
+test('keeps business assertions and unrelated values blocking', () => {
+  const requestUrl = 'https://api.example.com/revenue?timezone=Asia%2FAmman';
+
+  assert.equal(
+    isQueryParameterEchoAssertion('.data.timezone == "UTC"', requestUrl),
+    false,
+  );
+  assert.equal(
+    isQueryParameterEchoAssertion('.data.success == true', requestUrl),
+    false,
+  );
+  assert.equal(
+    isQueryParameterEchoAssertion('.data.totalRevenue >= 0', requestUrl),
+    false,
+  );
 });

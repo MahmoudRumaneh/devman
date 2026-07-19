@@ -340,6 +340,10 @@
     return window.DevmanAssertionUtils?.normalizeAssertions(value) || [];
   }
 
+  function isQueryParameterEchoAssertion(expression, requestUrl) {
+    return window.DevmanAssertionUtils?.isQueryParameterEchoAssertion(expression, requestUrl) === true;
+  }
+
   function normalizeHttpUrl(value) {
     if (typeof value !== 'string' || !value.trim()) return '';
     try {
@@ -2393,6 +2397,7 @@
     }
     const assertions = normalizeAssertions(row.assert);
     if (assertions.length) bits.push(`${assertions.length} assert${assertions.length > 1 ? 's' : ''}`);
+    if (row.result?.assertionWarnings?.length) bits.push('query fallback accepted');
     if (row.capture && Object.keys(row.capture).length) bits.push(`captures: ${Object.keys(row.capture).join(', ')}`);
     if (row.softFailIfContains && row.softFailIfContains.length) bits.push(`known-bug marker: ${row.softFailIfContains.join(', ')}`);
     if (row.continueOnFail) bits.push('continues on fail');
@@ -3788,6 +3793,7 @@
 
     let assertionFailure = '';
     let assertionError = '';
+    const assertionWarnings = [];
     for (const exprRaw of normalizeAssertions(row.assert)) {
       const expr = subst(exprRaw);
       const r = await callJq('assert', expr, fetched.body);
@@ -3798,6 +3804,10 @@
         break;
       }
       if (r.pass !== true) {
+        if (isQueryParameterEchoAssertion(expr, fetched.reqUrl)) {
+          assertionWarnings.push(expr);
+          continue;
+        }
         assertionFailure = expr;
         break;
       }
@@ -3810,7 +3820,7 @@
         const r = await callJq('capture', filterRaw, fetched.body);
         if (r.ok && r.value) VARS[k] = r.value;
       }
-      row.result = completedResult('pass', fetched);
+      row.result = completedResult('pass', { ...fetched, assertionWarnings });
       renderVarsPanel();
       return 'pass';
     }
@@ -3848,6 +3858,7 @@
       responseTruncated: fetched.responseTruncated,
       assertionFailure: fetched.assertionFailure,
       assertionError: fetched.assertionError,
+      assertionWarnings: fetched.assertionWarnings,
     };
   }
 

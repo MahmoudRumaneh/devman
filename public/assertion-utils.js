@@ -29,5 +29,21 @@
     return [assertion];
   }
 
-  return { normalizeAssertions };
+  function isQueryParameterEchoAssertion(expression, requestUrl) {
+    if (typeof expression !== 'string' || typeof requestUrl !== 'string') return false;
+    const match = expression.trim().match(
+      /^\.data\.([A-Za-z_][A-Za-z0-9_]*)\s*==\s*("(?:[^"\\]|\\.)*")$/,
+    );
+    if (!match) return false;
+
+    try {
+      const expectedValue = JSON.parse(match[2]);
+      const queryValue = new URL(requestUrl).searchParams.get(match[1]);
+      return typeof expectedValue === 'string' && queryValue === expectedValue;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  return { isQueryParameterEchoAssertion, normalizeAssertions };
 }));
