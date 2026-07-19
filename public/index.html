@@ -86,18 +86,20 @@
       <section class="route-composer" aria-labelledby="routeComposerTitle">
         <div class="route-composer-head">
           <div class="route-composer-heading">
-            <span class="route-composer-icon" aria-hidden="true">+</span>
+            <span id="routeComposerIcon" class="route-composer-icon" aria-hidden="true">+</span>
             <div>
               <h3 id="routeComposerTitle">Quick add endpoints</h3>
-              <p>One endpoint per line. The method is optional and defaults to GET.</p>
+              <p>Paste endpoint lines or complete cURL commands. Headers, cookies, and bodies are imported.</p>
             </div>
           </div>
           <span id="routeComposerCount" class="route-composer-count">Waiting for input</span>
         </div>
         <div class="route-editor-shell">
-          <textarea id="pasteBox" rows="4" aria-label="Endpoint routes" aria-describedby="routeComposerFeedback routeComposerShortcut" spellcheck="false" placeholder="GET /admin/courses/queue
-POST /admin/courses/{id}/approve
-GET /admin/courses/queue?tab=PENDING"></textarea>
+          <textarea id="pasteBox" rows="4" aria-label="Endpoint routes or cURL commands" aria-describedby="routeComposerFeedback routeComposerShortcut" spellcheck="false" placeholder="GET /admin/courses/queue
+
+curl 'https://api.example.com/users' \
+  -H 'accept: application/json' \
+  -H 'authorization: Bearer ${TOKEN}'"></textarea>
         </div>
         <div class="route-composer-footer">
           <div class="route-composer-help">
@@ -127,7 +129,7 @@ GET /admin/courses/queue?tab=PENDING"></textarea>
         <div class="endpoint-search-controls">
           <div class="endpoint-search-input-wrap">
             <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"></circle><path d="m16 16 4 4"></path></svg>
-            <input id="endpointSearch" type="search" placeholder="Search method, path, headers, notes, captures, body..." autocomplete="off" />
+            <input id="endpointSearch" type="text" inputmode="search" role="searchbox" placeholder="Search groups first, then endpoints..." autocomplete="off" />
           </div>
           <button id="clearSearchBtn" class="btn ghost endpoint-search-clear" type="button" disabled>
             <span aria-hidden="true">×</span>
@@ -178,7 +180,7 @@ GET /admin/courses/queue?tab=PENDING"></textarea>
         </span>
         <span class="spacer"></span>
         <button id="saveReportBtn" class="btn ghost" type="button">Save report (.md)</button>
-        <button id="clearAllBtn" class="btn danger-ghost" type="button">Clear all rows</button>
+        <button id="clearAllBtn" class="btn danger-ghost" type="button">Clear workspace</button>
         <button id="runAllBtn" class="btn primary" type="button">Run all</button>
       </div>
     </div>
@@ -342,6 +344,7 @@ GET /admin/courses/queue?tab=PENDING"></textarea>
     </div>
   </div>
 
+  <script src="curl-parser.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

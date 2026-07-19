@@ -2416,6 +2416,146 @@ select:focus {
   }
 }
 
+/* Final responsive polish for group search, endpoint actions, and collapse controls. */
+.endpoint-headers-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-inline-size: max-content;
+  white-space: nowrap;
+}
+
+.endpoint-headers-label {
+  min-width: 0;
+}
+
+.endpoint-headers-count {
+  min-width: 20px;
+  height: 20px;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  padding-inline: 5px;
+  border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent-soft) 76%, var(--surface));
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 850;
+  line-height: 1;
+}
+
+.lane-collapse-toggle {
+  width: 34px;
+  height: 34px;
+  flex-basis: 34px;
+  border-color: color-mix(in srgb, var(--accent) 24%, var(--border));
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--surface) 86%, var(--surface-2));
+  color: var(--text-muted);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--text) 8%, transparent);
+  transition: border-color 0.15s, background 0.15s, color 0.15s, box-shadow 0.15s;
+}
+
+.lane-collapse-toggle svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.25;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform 0.18s ease;
+}
+
+.stage-lane:not(.is-collapsed) .lane-collapse-toggle {
+  border-color: color-mix(in srgb, var(--accent) 44%, var(--border));
+  background: color-mix(in srgb, var(--accent-soft) 70%, var(--surface));
+  color: var(--accent);
+}
+
+.lane-collapse-toggle:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 64%, var(--border));
+  background: color-mix(in srgb, var(--accent-soft) 88%, var(--surface));
+  color: var(--accent);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.stage-lane.is-collapsed .lane-collapse-toggle svg {
+  transform: rotate(-90deg);
+}
+
+[dir="rtl"] .stage-lane.is-collapsed .lane-collapse-toggle svg {
+  transform: rotate(90deg);
+}
+
+.stage-lane.is-group-search-match {
+  border-color: color-mix(in srgb, var(--accent) 54%, var(--border));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 9%, transparent);
+}
+
+.stage-lane.is-group-search-match .stage-lane-header {
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--accent-soft) 88%, var(--surface)),
+    color-mix(in srgb, var(--surface-2) 82%, var(--surface)));
+}
+
+.lane-drag-handle.is-disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+@media (max-width: 1080px) and (min-width: 861px) {
+  .result-cell,
+  .actions-cell {
+    grid-column: 1 / -1;
+  }
+
+  .actions-cell {
+    width: 100%;
+    display: grid;
+    grid-template-columns: minmax(72px, 1fr) minmax(100px, auto) minmax(72px, 1fr) 40px;
+  }
+}
+
+@media (max-width: 860px) {
+  .endpoint-headers-btn {
+    min-inline-size: 0;
+  }
+
+  .endpoint-headers-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
+@media (max-width: 520px) {
+  .endpoint-search-head {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .search-count {
+    max-width: 100%;
+    white-space: normal;
+    text-align: center;
+  }
+
+  .lane-collapse-toggle {
+    width: 36px;
+    height: 36px;
+    flex-basis: 36px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lane-collapse-toggle,
+  .lane-collapse-toggle svg {
+    transition: none;
+  }
+}
+
 /* Inline group naming. */
 .lane-title-editor {
   display: flex;
@@ -4310,6 +4450,19 @@ body.modal-open {
   color: var(--green);
 }
 
+.route-composer-count.is-curl {
+  border-color: color-mix(in srgb, var(--accent) 44%, var(--border));
+  background: color-mix(in srgb, var(--accent-soft) 78%, var(--surface));
+  color: var(--accent);
+}
+
+.route-composer-icon.is-curl {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: -0.08em;
+}
+
 .route-composer-count.has-error {
   border-color: color-mix(in srgb, var(--red) 42%, var(--border));
   background: var(--red-bg);
@@ -4338,6 +4491,11 @@ body.modal-open {
   line-height: 1.55;
   resize: vertical;
   tab-size: 2;
+}
+
+.route-editor-shell #pasteBox.is-curl {
+  max-height: 360px;
+  background: color-mix(in srgb, var(--accent-soft) 16%, transparent);
 }
 
 .route-editor-shell #pasteBox:focus {
@@ -4441,6 +4599,11 @@ body.modal-open {
   .route-editor-shell #pasteBox {
     padding: 12px;
     font-size: 12.5px;
+  }
+
+
+  .route-editor-shell #pasteBox.is-curl {
+    max-height: 320px;
   }
 
   .route-composer-footer {
@@ -5101,5 +5264,113 @@ select.shared-select-native {
   #jsonImportChoiceAppend {
     grid-column: 1 / -1;
     grid-row: 1;
+  }
+}
+
+@media (min-width: 1081px) {
+  .request-main {
+    grid-template-columns: 92px minmax(160px, 1fr) 136px 92px minmax(78px, 96px) minmax(276px, max-content);
+  }
+
+  .actions-cell {
+    width: max-content;
+    min-width: 276px;
+  }
+
+  .actions-cell .row-action {
+    flex: 0 0 auto;
+  }
+}
+
+/* A real zero-state: clearing the workspace no longer leaves a placeholder group. */
+#rowsHeader[hidden] {
+  display: none;
+}
+
+.workspace-empty-state {
+  min-height: 260px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 16px;
+  padding: clamp(28px, 6vw, 56px) clamp(18px, 5vw, 44px);
+  border: 1px dashed color-mix(in srgb, var(--accent) 28%, var(--border));
+  border-radius: 12px;
+  background:
+    radial-gradient(circle at 50% 0%, color-mix(in srgb, var(--accent-soft) 52%, transparent), transparent 48%),
+    color-mix(in srgb, var(--surface-2) 62%, var(--surface));
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.workspace-empty-icon {
+  width: 54px;
+  height: 54px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--accent) 36%, var(--border));
+  border-radius: 15px;
+  background: color-mix(in srgb, var(--accent-soft) 72%, var(--surface));
+  color: var(--accent);
+  box-shadow: 0 10px 30px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.workspace-empty-icon svg {
+  width: 27px;
+  height: 27px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.workspace-empty-copy {
+  max-inline-size: 580px;
+  display: grid;
+  gap: 7px;
+}
+
+.workspace-empty-copy strong {
+  color: var(--text);
+  font-size: clamp(17px, 2vw, 20px);
+  line-height: 1.25;
+}
+
+.workspace-empty-copy span {
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.workspace-empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 9px;
+}
+
+.workspace-empty-actions .btn {
+  min-height: 40px;
+}
+
+.endpoint-search-input-wrap input:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+@media (max-width: 560px) {
+  .workspace-empty-state {
+    min-height: 240px;
+    border-radius: 10px;
+  }
+
+  .workspace-empty-actions {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .workspace-empty-actions .btn {
+    width: 100%;
   }
 }

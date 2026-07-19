@@ -35,6 +35,8 @@
     key: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="15" r="4"></circle><path d="m11 12 9-9M16 7l3 3M14 9l2 2"></path></svg>',
     play: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 5 11 7-11 7Z"></path></svg>',
     response: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"></path><circle cx="12" cy="12" r="2.5"></circle></svg>',
+    chevron: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"></path></svg>',
+    workspace: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"></rect><path d="M8 12h8M12 8v8"></path></svg>',
   };
   const DEFAULT_TOKEN_PROFILES = [
     { key: 'admin', label: 'Tenant admin', varName: 'ADMIN_TOKEN', scope: 'TenantRole.TENANT_ADMIN', locked: true },
@@ -209,6 +211,33 @@
     return state.laneOrder[state.laneOrder.length - 1];
   }
 
+  function focusEndpointPath(rowId) {
+    window.requestAnimationFrame(() => {
+      const input = document.querySelector(`[data-row-id="${rowId}"] .path-input`);
+      input?.focus();
+    });
+  }
+
+  function addEmptyRowToWorkspace() {
+    const laneId = lastLaneId();
+    const row = emptyRow({ laneId });
+    state.rows.push(row);
+    laneMetaFor(laneId).collapsed = false;
+    renderRows();
+    save();
+    focusEndpointPath(row.id);
+  }
+
+  function addEmptyGroupToWorkspace() {
+    const laneId = newLaneId({ collapsed: false });
+    state.laneOrder.push(laneId);
+    renderRows();
+    save();
+    window.requestAnimationFrame(() => {
+      document.querySelector(`[data-lane-id="${laneId}"]`)?.scrollIntoView({ block: 'nearest' });
+    });
+  }
+
   function normalizeLaneMeta(rawMeta, laneOrder) {
     const source = isRecord(rawMeta) ? rawMeta : {};
     return Object.fromEntries(laneOrder.map((laneId) => {
@@ -229,14 +258,6 @@
 
   function laneDisplayName(laneId, index = state.laneOrder.indexOf(laneId)) {
     return laneMetaFor(laneId).name || `Group ${Math.max(index, 0) + 1}`;
-  }
-
-  // Empty lanes are a valid, persistent state (e.g. "+ Add group" creates one
-  // on purpose as a drop target) — they're only removed via the explicit ✕ on
-  // the lane header, never auto-pruned on render. This just guards against
-  // state.laneOrder ever being completely empty.
-  function ensureAtLeastOneLane() {
-    if (!state.laneOrder.length) state.laneOrder.push(newLaneId());
   }
 
   // ---- persistence ----------------------------------------------------
@@ -973,7 +994,7 @@
   }
 
   function focusFailedEndpoint(row) {
-    if (state.endpointSearch && !rowMatchesSearch(row)) {
+    if (state.endpointSearch && !rowOrLaneMatchesSearch(row)) {
       state.endpointSearch = '';
       syncEndpointSearchControls();
       saveDebounced();
@@ -1360,6 +1381,9 @@
   // ---- route / status helpers ------------------------------------------------
 
   function analyzeRoutesText(text) {
+    const curlParser = window.DevmanCurlParser;
+    if (curlParser?.looksLikeCurl(text)) return curlParser.parseCurlText(text);
+
     const routes = [];
     const issues = [];
     String(text || '').split('\n').forEach((rawLine, index) => {
@@ -1390,7 +1414,7 @@
       }
       routes.push({ method, path });
     });
-    return { routes, issues };
+    return { routes, issues, sourceType: 'routes' };
   }
 
   function joinUrl(base, path) {
@@ -1476,10 +1500,12 @@
       return row;
     });
     let laneOrder = Array.isArray(parsed.laneOrder) ? parsed.laneOrder : null;
-    if (!laneOrder || !laneOrder.length) {
+    if ((!laneOrder || !laneOrder.length) && rows.length) {
       const id = newLaneId();
       laneOrder = [id];
       rows.forEach((r) => { r.laneId = id; });
+    } else if (!laneOrder) {
+      laneOrder = [];
     } else {
       rows.forEach((r) => { if (!r.laneId) r.laneId = laneOrder[0]; });
     }
@@ -1645,6 +1671,27 @@
     let suffix = 2;
     while (usedNames.has(candidate.toLocaleLowerCase())) candidate = `${sourceName} copy ${suffix++}`;
     return candidate;
+  }
+
+  function uniqueLaneName(baseName) {
+    const normalizedBaseName = String(baseName || '').trim() || 'New group';
+    const usedNames = new Set(state.laneOrder.map((id, index) =>
+      laneDisplayName(id, index).toLocaleLowerCase()));
+    let candidate = normalizedBaseName;
+    let suffix = 2;
+    while (usedNames.has(candidate.toLocaleLowerCase())) candidate = `${normalizedBaseName} ${suffix++}`;
+    return candidate;
+  }
+
+  function quickAddLaneName(analysis, routes) {
+    if (analysis.sourceType !== 'curl') return uniqueLaneName('Quick add');
+    const hostNames = new Set(routes.map((route) => {
+      try { return new URL(route.path).hostname; } catch (_) { return ''; }
+    }).filter(Boolean));
+    const baseName = hostNames.size === 1
+      ? `cURL · ${[...hostNames][0]}`
+      : 'cURL import';
+    return uniqueLaneName(baseName);
   }
 
   function cloneRowForLane(row, laneId) {
@@ -1860,9 +1907,64 @@
 
   // ---- rendering ------------------------------------------------------------
 
+  function buildWorkspaceEmptyState() {
+    const empty = document.createElement('section');
+    empty.className = 'workspace-empty-state';
+    empty.setAttribute('aria-labelledby', 'workspaceEmptyTitle');
+
+    const icon = document.createElement('span');
+    icon.className = 'workspace-empty-icon';
+    icon.innerHTML = ICONS.workspace;
+
+    const copy = document.createElement('div');
+    copy.className = 'workspace-empty-copy';
+    const title = document.createElement('strong');
+    title.id = 'workspaceEmptyTitle';
+    title.textContent = 'Your workspace is clear';
+    const description = document.createElement('span');
+    description.textContent = 'Add an endpoint, create an empty group, or paste routes and cURL commands in Quick add above.';
+    copy.appendChild(title);
+    copy.appendChild(description);
+
+    const actions = document.createElement('div');
+    actions.className = 'workspace-empty-actions';
+    const addEndpointButton = document.createElement('button');
+    addEndpointButton.className = 'btn primary';
+    addEndpointButton.type = 'button';
+    addEndpointButton.textContent = '+ Add first endpoint';
+    addEndpointButton.addEventListener('click', addEmptyRowToWorkspace);
+    const addGroupButton = document.createElement('button');
+    addGroupButton.className = 'btn ghost';
+    addGroupButton.type = 'button';
+    addGroupButton.textContent = '+ Create empty group';
+    addGroupButton.addEventListener('click', addEmptyGroupToWorkspace);
+    const useQuickAddButton = document.createElement('button');
+    useQuickAddButton.className = 'btn ghost';
+    useQuickAddButton.type = 'button';
+    useQuickAddButton.textContent = 'Use Quick add';
+    useQuickAddButton.addEventListener('click', () => {
+      const pasteBox = el('pasteBox');
+      pasteBox?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      pasteBox?.focus({ preventScroll: true });
+    });
+    actions.appendChild(addEndpointButton);
+    actions.appendChild(addGroupButton);
+    actions.appendChild(useQuickAddButton);
+
+    empty.appendChild(icon);
+    empty.appendChild(copy);
+    empty.appendChild(actions);
+    return empty;
+  }
+
   function renderRows() {
     closeSharedSelect();
-    ensureAtLeastOneLane();
+    if (!state.laneOrder.length && state.endpointSearch) {
+      state.endpointSearch = '';
+      previousEndpointSearch = '';
+      searchCollapsedLaneIds.clear();
+      syncEndpointSearchControls();
+    }
     [...selectedLaneIds].forEach((laneId) => {
       if (!state.laneOrder.includes(laneId)) selectedLaneIds.delete(laneId);
     });
@@ -1875,11 +1977,21 @@
     let visibleCount = 0;
     if (selectedLaneIds.size) list.appendChild(buildGroupSelectionBar());
 
-    state.laneOrder.forEach((laneId, idx) => {
+    const laneRenderEntries = state.laneOrder.map((laneId, idx) => {
       const allLaneRows = state.rows.filter((r) => r.laneId === laneId);
-      const laneRows = allLaneRows.filter((r) => rowMatchesSearch(r));
-      if (isSearching && !laneRows.length) return;
+      const groupMatches = isSearching && laneMatchesSearch(laneId, idx);
+      const laneRows = groupMatches ? allLaneRows : allLaneRows.filter((r) => rowMatchesSearch(r));
+      return { laneId, idx, allLaneRows, laneRows, groupMatches };
+    }).filter(({ laneRows, groupMatches }) => !isSearching || groupMatches || laneRows.length);
+    if (isSearching) {
+      laneRenderEntries.sort((left, right) =>
+        Number(right.groupMatches) - Number(left.groupMatches) || left.idx - right.idx);
+    }
+    let visibleGroupCount = 0;
+
+    laneRenderEntries.forEach(({ laneId, idx, allLaneRows, laneRows, groupMatches }) => {
       visibleCount += laneRows.length;
+      visibleGroupCount += 1;
       const meta = laneMetaFor(laneId);
       const isCollapsed = isSearching
         ? searchCollapsedLaneIds.has(laneId)
@@ -1889,11 +2001,12 @@
       laneEl.classList.toggle('is-collapsed', isCollapsed);
       laneEl.classList.toggle('is-selected', selectedLaneIds.has(laneId));
       laneEl.classList.toggle('is-run-active', runInProgress && activeRunLaneId === laneId);
+      laneEl.classList.toggle('is-group-search-match', groupMatches);
       laneEl.dataset.laneId = laneId;
 
       const header = document.createElement('div');
       header.className = 'stage-lane-header';
-      header.draggable = true;
+      header.draggable = !isSearching;
       header.addEventListener('dragstart', (event) => {
         if (event.target.closest('button, input')) {
           event.preventDefault();
@@ -1912,6 +2025,8 @@
       const handle = document.createElement('span');
       handle.className = 'lane-drag-handle';
       handle.textContent = '⠿';
+      handle.classList.toggle('is-disabled', isSearching);
+      handle.title = isSearching ? 'Clear search to reorder groups' : 'Drag to reorder this group';
       header.appendChild(handle);
 
       const selectButton = document.createElement('button');
@@ -1938,7 +2053,7 @@
       collapseButton.type = 'button';
       collapseButton.draggable = false;
       collapseButton.disabled = runInProgress && activeRunLaneId === laneId;
-      collapseButton.innerHTML = '<span aria-hidden="true">⌄</span>';
+      collapseButton.innerHTML = ICONS.chevron;
       collapseButton.title = isCollapsed ? 'Expand group' : 'Collapse group';
       collapseButton.setAttribute('aria-label', `${isCollapsed ? 'Expand' : 'Collapse'} ${laneDisplayName(laneId, idx)}`);
       collapseButton.setAttribute('aria-expanded', String(!isCollapsed));
@@ -1990,9 +2105,11 @@
 
       const hint = document.createElement('span');
       hint.className = 'lane-hint';
-      hint.textContent = idx === 0
-        ? 'runs first · endpoints run in order'
-        : `execution position ${idx + 1} · endpoints run in order`;
+      hint.textContent = groupMatches
+        ? `group name match · all ${allLaneRows.length} endpoint${allLaneRows.length === 1 ? '' : 's'} shown`
+        : idx === 0
+          ? 'runs first · endpoints run in order'
+          : `execution position ${idx + 1} · endpoints run in order`;
       header.appendChild(hint);
 
       const headerActions = document.createElement('div');
@@ -2042,10 +2159,6 @@
       removeLaneBtn.textContent = '×';
       removeLaneBtn.title = allLaneRows.length ? 'Delete group and its rows' : 'Delete group';
       removeLaneBtn.addEventListener('click', async () => {
-        if (state.laneOrder.length <= 1) {
-          toast('Keep at least one group');
-          return;
-        }
         if (allLaneRows.length) {
           const groupName = laneDisplayName(laneId, idx);
           const confirmed = await showConfirm({
@@ -2060,6 +2173,12 @@
         state.rows = state.rows.filter((row) => row.laneId !== laneId);
         delete state.laneMeta[laneId];
         selectedLaneIds.delete(laneId);
+        if (!state.laneOrder.length) {
+          state.endpointSearch = '';
+          previousEndpointSearch = '';
+          searchCollapsedLaneIds.clear();
+          syncEndpointSearchControls();
+        }
         renderRows();
         save();
       });
@@ -2077,7 +2196,7 @@
       } else if (!laneRows.length) {
         const emptyHint = document.createElement('div');
         emptyHint.className = 'lane-empty-hint';
-        emptyHint.textContent = 'Drag a row here';
+        emptyHint.textContent = groupMatches ? 'This matching group has no endpoints yet' : 'Drag a row here';
         body.appendChild(emptyHint);
       } else {
         for (const row of laneRows) body.appendChild(buildRowEl(row));
@@ -2088,16 +2207,19 @@
       list.appendChild(laneEl);
     });
 
-    if (isSearching && visibleCount === 0) {
+    if (!isSearching && state.laneOrder.length === 0) {
+      list.appendChild(buildWorkspaceEmptyState());
+    } else if (isSearching && visibleGroupCount === 0) {
       const empty = document.createElement('div');
       empty.className = 'search-empty';
-      empty.innerHTML = '<strong>No endpoints found</strong><span>Try method, path, note, capture name, status, or body text.</span>';
+      empty.innerHTML = '<strong>No groups or endpoints found</strong><span>Try a group name, method, path, header, note, status, or body value.</span>';
       list.appendChild(empty);
     }
 
     list.classList.remove('single-lane');
 
-    updateSearchCount(isSearching ? visibleCount : state.rows.length);
+    updateSearchCount(isSearching ? visibleCount : state.rows.length, isSearching ? visibleGroupCount : state.laneOrder.length);
+    syncWorkspaceAvailability();
     updateSummary();
   }
 
@@ -2151,13 +2273,24 @@
     return query.split(/\s+/).every((part) => rowSearchText(row).includes(part));
   }
 
-  function updateSearchCount(visibleCount) {
+  function laneMatchesSearch(laneId, laneIndex = state.laneOrder.indexOf(laneId)) {
+    const query = state.endpointSearch.trim().toLowerCase();
+    if (!query) return true;
+    const groupName = laneDisplayName(laneId, laneIndex).toLowerCase();
+    return query.split(/\s+/).every((part) => groupName.includes(part));
+  }
+
+  function rowOrLaneMatchesSearch(row) {
+    return rowMatchesSearch(row) || laneMatchesSearch(row.laneId);
+  }
+
+  function updateSearchCount(visibleCount, visibleGroupCount) {
     const count = el('searchCount');
     if (!count) return;
     const total = state.rows.length;
     const query = state.endpointSearch.trim();
     count.textContent = query
-      ? `${visibleCount} of ${total} endpoint${total === 1 ? '' : 's'}`
+      ? `${visibleCount} endpoint${visibleCount === 1 ? '' : 's'} · ${visibleGroupCount} group${visibleGroupCount === 1 ? '' : 's'}`
       : `${total} endpoint${total === 1 ? '' : 's'}`;
   }
 
@@ -2165,7 +2298,25 @@
     const input = el('endpointSearch');
     const clearButton = el('clearSearchBtn');
     if (input && input.value !== state.endpointSearch) input.value = state.endpointSearch;
+    if (input) {
+      input.disabled = !state.laneOrder.length;
+      input.title = state.laneOrder.length ? '' : 'Add an endpoint or group to enable search';
+    }
     if (clearButton) clearButton.disabled = !state.endpointSearch.trim();
+  }
+
+  function syncWorkspaceAvailability() {
+    const isWorkspaceEmpty = !state.rows.length && !state.laneOrder.length;
+    const rowsHeader = el('rowsHeader');
+    const clearWorkspaceButton = el('clearAllBtn');
+    if (rowsHeader) rowsHeader.hidden = !state.rows.length;
+    if (clearWorkspaceButton) {
+      clearWorkspaceButton.disabled = runInProgress || isWorkspaceEmpty;
+      clearWorkspaceButton.title = isWorkspaceEmpty
+        ? 'The workspace is already clear'
+        : 'Remove every endpoint and group';
+    }
+    syncEndpointSearchControls();
   }
 
   function customHeaderEntries(row) {
@@ -2735,7 +2886,17 @@
     headersBtn.className = 'btn ghost small row-action endpoint-headers-btn';
     const headerCount = customHeaderEntries(row).length;
     const headersAreOpen = row.activePanel === ROW_PANEL.HEADERS;
-    headersBtn.textContent = headersAreOpen ? 'Hide' : `Headers${headerCount ? ` · ${headerCount}` : ''}`;
+    const headersLabel = document.createElement('span');
+    headersLabel.className = 'endpoint-headers-label';
+    headersLabel.textContent = headersAreOpen ? 'Hide headers' : 'Headers';
+    headersBtn.appendChild(headersLabel);
+    if (headerCount) {
+      const headersCount = document.createElement('span');
+      headersCount.className = 'endpoint-headers-count';
+      headersCount.textContent = String(headerCount);
+      headersCount.setAttribute('aria-label', `${headerCount} custom header${headerCount === 1 ? '' : 's'}`);
+      headersBtn.appendChild(headersCount);
+    }
     headersBtn.title = headersAreOpen ? 'Hide request headers' : 'View or edit request headers';
     headersBtn.setAttribute('aria-expanded', String(headersAreOpen));
     headersBtn.addEventListener('click', () => {
@@ -3516,6 +3677,7 @@
       runAllButton.classList.toggle('danger', runInProgress);
       runAllButton.classList.toggle('primary', !runInProgress);
     }
+    syncWorkspaceAvailability();
     document.querySelectorAll('.run-group-btn').forEach((button) => {
       const laneId = button.closest('.stage-lane')?.dataset.laneId;
       const hasRows = state.rows.some((row) => row.laneId === laneId);
@@ -4178,38 +4340,77 @@
       const feedback = el('routeComposerFeedback');
       const hasInput = pasteBox.value.trim().length > 0;
       const hasIssues = analysis.issues.length > 0;
+      const isCurl = analysis.sourceType === 'curl';
       const endpointLabel = `endpoint${analysis.routes.length === 1 ? '' : 's'}`;
+      const requestLabel = isCurl
+        ? `cURL request${analysis.routes.length === 1 ? '' : 's'}`
+        : endpointLabel;
+      const composerIcon = el('routeComposerIcon');
 
       count.classList.toggle('is-ready', analysis.routes.length > 0 && !hasIssues);
       count.classList.toggle('has-error', hasIssues);
+      count.classList.toggle('is-curl', isCurl && !hasIssues);
+      if (composerIcon) {
+        composerIcon.textContent = isCurl ? '>_' : '+';
+        composerIcon.classList.toggle('is-curl', isCurl);
+      }
       count.textContent = !hasInput
         ? 'Waiting for input'
         : hasIssues
           ? `${analysis.issues.length} issue${analysis.issues.length === 1 ? '' : 's'}`
-          : `${analysis.routes.length} ${endpointLabel} ready`;
+          : `${analysis.routes.length} ${requestLabel} ready`;
 
       if (!hasInput) {
-        feedback.textContent = 'Paste endpoints to validate them.';
+        feedback.textContent = 'Paste endpoint lines or cURL commands to validate them.';
       } else if (hasIssues) {
         const issue = analysis.issues[0];
         const extraIssues = analysis.issues.length > 1 ? ` · +${analysis.issues.length - 1} more` : '';
-        feedback.textContent = `Line ${issue.line}: ${issue.message}${extraIssues}`;
+        const location = isCurl && issue.command
+          ? `cURL ${issue.command}, line ${issue.line}`
+          : `Line ${issue.line}`;
+        feedback.textContent = `${location}: ${issue.message}${extraIssues}`;
       } else {
         const methodCounts = new Map();
         analysis.routes.forEach(({ method }) => methodCounts.set(method, (methodCounts.get(method) || 0) + 1));
         const summary = [...methodCounts.entries()].map(([method, methodCount]) => `${methodCount} ${method}`).join(' · ');
-        feedback.textContent = `${analysis.routes.length} ${endpointLabel} ready${summary ? ` · ${summary}` : ''}`;
+        if (isCurl) {
+          const headerCount = analysis.routes.reduce((total, route) => total + Object.keys(route.headers || {}).length, 0);
+          const uploadCount = analysis.routes.reduce((total, route) =>
+            total + (route.formData || []).filter((part) => part.kind === FORM_PART_KIND.FILE).length +
+            (route.bodyMode === BODY_MODE.BINARY ? 1 : 0), 0);
+          const hasCookies = analysis.routes.some((route) => Object.keys(route.headers || {})
+            .some((name) => name.toLowerCase() === 'cookie'));
+          const hasBody = analysis.routes.some((route) => Boolean(route.body) ||
+            (route.formData || []).length > 0 || route.bodyMode === BODY_MODE.BINARY);
+          const importedParts = [
+            'URL',
+            headerCount ? `${headerCount} header${headerCount === 1 ? '' : 's'}` : '',
+            hasCookies ? 'cookies' : '',
+            hasBody ? 'body' : '',
+          ].filter(Boolean);
+          const importedSummary = importedParts.length > 1
+            ? `${importedParts.slice(0, -1).join(', ')} and ${importedParts.at(-1)}`
+            : importedParts[0];
+          const details = [
+            summary,
+            uploadCount ? `${uploadCount} file${uploadCount === 1 ? '' : 's'} to select` : '',
+          ].filter(Boolean).join(' · ');
+          feedback.textContent = `cURL detected — ${importedSummary} imported${details ? ` · ${details}` : ''}`;
+        } else {
+          feedback.textContent = `${analysis.routes.length} ${endpointLabel} ready${summary ? ` · ${summary}` : ''}`;
+        }
       }
 
       feedback.classList.toggle('has-error', hasIssues);
       pasteBox.setAttribute('aria-invalid', String(hasIssues));
+      pasteBox.classList.toggle('is-curl', isCurl);
       parseButton.disabled = !analysis.routes.length || hasIssues;
       parseButton.textContent = analysis.routes.length && !hasIssues
-        ? `Add ${analysis.routes.length} ${endpointLabel}`
+        ? `Add ${analysis.routes.length} ${requestLabel}`
         : 'Add endpoints';
 
       pasteBox.style.height = 'auto';
-      pasteBox.style.height = `${Math.min(Math.max(pasteBox.scrollHeight, 112), 240)}px`;
+      pasteBox.style.height = `${Math.min(Math.max(pasteBox.scrollHeight, 112), isCurl ? 360 : 240)}px`;
       return analysis;
     };
 
@@ -4244,31 +4445,32 @@
       const parsed = analysis.routes;
       if (analysis.issues.length) return;
       if (!parsed.length) return;
-      const laneId = lastLaneId();
-      for (const p of parsed) state.rows.push(emptyRow({ ...p, laneId }));
-      laneMetaFor(laneId).collapsed = false;
+      const laneName = quickAddLaneName(analysis, parsed);
+      const laneId = newLaneId({ name: laneName, collapsed: false });
+      state.laneOrder.push(laneId);
+      for (const p of parsed) state.rows.push(emptyRow({ ...p, body: formatImportedBody(p.body), laneId }));
+      state.endpointSearch = '';
+      syncEndpointSearchControls();
       pasteBox.value = '';
       syncRouteComposer();
       renderRows();
       save();
-      toast(`Added ${parsed.length} endpoint${parsed.length === 1 ? '' : 's'}`);
+      window.requestAnimationFrame(() => {
+        const laneElement = [...document.querySelectorAll('.stage-lane')]
+          .find((candidate) => candidate.dataset.laneId === laneId);
+        if (!laneElement) return;
+        const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        laneElement.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'nearest' });
+      });
+      toast(analysis.sourceType === 'curl'
+        ? `Imported ${parsed.length} cURL request${parsed.length === 1 ? '' : 's'} into ${laneName}`
+        : `Added ${parsed.length} endpoint${parsed.length === 1 ? '' : 's'} to ${laneName}`);
     });
 
-    const addEmpty = () => {
-      const laneId = lastLaneId();
-      state.rows.push(emptyRow({ laneId }));
-      laneMetaFor(laneId).collapsed = false;
-      renderRows();
-      save();
-    };
-    el('addRowBtn').addEventListener('click', addEmpty);
-    el('addRowBtn2').addEventListener('click', addEmpty);
+    el('addRowBtn').addEventListener('click', addEmptyRowToWorkspace);
+    el('addRowBtn2').addEventListener('click', addEmptyRowToWorkspace);
 
-    el('addStageBtn').addEventListener('click', () => {
-      state.laneOrder.push(newLaneId());
-      renderRows();
-      save();
-    });
+    el('addStageBtn').addEventListener('click', addEmptyGroupToWorkspace);
 
     el('exampleBtn').addEventListener('click', () => {
       const laneId = lastLaneId();
@@ -4284,19 +4486,30 @@
     });
 
     el('clearAllBtn').addEventListener('click', async () => {
+      if (!state.rows.length && !state.laneOrder.length) return;
+      const endpointCount = state.rows.length;
+      const groupCount = state.laneOrder.length;
+      const removalSummary = [
+        endpointCount ? `${endpointCount} endpoint${endpointCount === 1 ? '' : 's'}` : '',
+        groupCount ? `${groupCount} group${groupCount === 1 ? '' : 's'}` : '',
+      ].filter(Boolean).join(' and ');
       const confirmed = await showConfirm({
-        title: 'Clear all rows',
-        message: 'This will remove every request row and reset the workspace to one empty group.',
-        okText: 'Clear rows',
+        title: 'Clear workspace?',
+        message: `This will permanently remove ${removalSummary}. Connection settings and tokens will stay unchanged.`,
+        okText: 'Clear workspace',
       });
       if (!confirmed) return;
       selectedFiles.clear();
       state.rows = [];
       selectedLaneIds.clear();
+      searchCollapsedLaneIds.clear();
+      previousEndpointSearch = '';
+      state.endpointSearch = '';
       state.laneMeta = {};
-      state.laneOrder = [newLaneId()];
+      state.laneOrder = [];
       renderRows();
       save();
+      toast('Workspace cleared');
     });
 
     el('exportBtn').addEventListener('click', () => {
@@ -4381,6 +4594,8 @@
 
   function init() {
     initTheme();
+    const hasSavedWorkspace = Boolean(
+      localStorage.getItem(STORAGE_KEY) || localStorage.getItem(LEGACY_STORAGE_KEY));
     load();
     enhanceSelect(el('swaggerImportMode'), {
       variant: 'workspace-action',
@@ -4397,7 +4612,7 @@
     bindVarsPanel();
     bindBackToTop();
     bindGuide();
-    if (!state.rows.length) {
+    if (!hasSavedWorkspace && !state.rows.length && !state.laneOrder.length) {
       const laneId = lastLaneId();
       state.rows.push(emptyRow({ method: 'GET', path: '/auth/me', role: 'admin', authVar: 'ADMIN_TOKEN', laneId }));
     }
