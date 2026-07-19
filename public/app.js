@@ -13,6 +13,8 @@
   const RETRYABLE_PROXY_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
   const PROXY_MAX_ATTEMPTS = 3;
   const PROXY_RETRY_DELAY_MS = 250;
+  const ASSERTION_REQUEST_MAX_ATTEMPTS = 3;
+  const ASSERTION_EVALUATOR_MAX_ATTEMPTS = 3;
   const FAILURE_ALERT_DURATION_MS = 9000;
   const FAILURE_HIGHLIGHT_DURATION_MS = 2600;
   const RUN_MODE = Object.freeze({ ALL: 'all', GROUPS: 'groups', SINGLE: 'single' });
@@ -168,6 +170,7 @@
       ...over,
     };
     row.expect = normalizeStatusExpectation(row.expect);
+    row.assert = normalizeAssertions(row.assert);
     if (!BODY_MODE_VALUES.has(row.bodyMode)) row.bodyMode = BODY_MODE.RAW;
     row.formData = normalizeFormData(row.formData);
     row.binaryFile = normalizeFileMetadata(row.binaryFile);
@@ -331,6 +334,10 @@
 
   function isRecord(value) {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
+  }
+
+  function normalizeAssertions(value) {
+    return window.DevmanAssertionUtils?.normalizeAssertions(value) || [];
   }
 
   function normalizeHttpUrl(value) {
@@ -1025,8 +1032,12 @@
     if (!statusMatches(result.status, row.expect)) {
       return `Received HTTP ${result.status}; expected ${row.expect.trim() || 'a successful response'}.`;
     }
-    if ((row.assert || []).length) {
-      return `HTTP ${result.status} was received, but a response assertion did not pass.`;
+    if (result.assertionFailure) {
+      const retrySummary = result.attempts > 1 ? ` after ${result.attempts} attempts` : '';
+      return `HTTP ${result.status} was received${retrySummary}, but assertion “${result.assertionFailure}” did not pass.`;
+    }
+    if (result.assertionError) {
+      return `HTTP ${result.status} was received, but its response assertion could not be evaluated: ${result.assertionError}`;
     }
     return `The endpoint returned HTTP ${result.status} and did not meet its configured expectation.`;
   }
@@ -2380,7 +2391,8 @@
     } else if (row.bodyMode === BODY_MODE.BINARY) {
       bits.push(`binary file${row.binaryFile ? ` · ${row.binaryFile.name}` : ' · not selected'}`);
     }
-    if (row.assert && row.assert.length) bits.push(`${row.assert.length} assert${row.assert.length > 1 ? 's' : ''}`);
+    const assertions = normalizeAssertions(row.assert);
+    if (assertions.length) bits.push(`${assertions.length} assert${assertions.length > 1 ? 's' : ''}`);
     if (row.capture && Object.keys(row.capture).length) bits.push(`captures: ${Object.keys(row.capture).join(', ')}`);
     if (row.softFailIfContains && row.softFailIfContains.length) bits.push(`known-bug marker: ${row.softFailIfContains.join(', ')}`);
     if (row.continueOnFail) bits.push('continues on fail');
@@ -2409,7 +2421,7 @@
       row.binaryFile?.name,
       JSON.stringify(row.headers || {}),
       JSON.stringify(row.capture || {}),
-      (row.assert || []).join(' '),
+      normalizeAssertions(row.assert).join(' '),
       (row.softFailIfContains || []).join(' '),
       row.result?.state,
       row.result?.status,
@@ -3740,16 +3752,30 @@
   }
 
   async function callJq(mode, filter, input) {
-    try {
-      const resp = await fetch('/api/jq', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode, filter, input }),
-      });
-      return await resp.json();
-    } catch (e) {
-      return { ok: false, error: String(e) };
+    let lastError = 'The assertion evaluator did not return a valid response';
+    for (let attempt = 1; attempt <= ASSERTION_EVALUATOR_MAX_ATTEMPTS; attempt += 1) {
+      try {
+        const resp = await fetch('/api/jq', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mode, filter, input }),
+          signal: activeRunController?.signal,
+        });
+        if (!resp.ok) throw new Error(`Assertion evaluator returned HTTP ${resp.status}`);
+        const result = await resp.json();
+        if (!isRecord(result) || typeof result.ok !== 'boolean') {
+          throw new Error('Assertion evaluator returned an invalid response');
+        }
+        return result;
+      } catch (error) {
+        if (activeRunController?.signal.aborted) return { ok: false, error: 'Run stopped by user' };
+        lastError = errorMessage(error);
+        if (attempt < ASSERTION_EVALUATOR_MAX_ATTEMPTS) {
+          await wait(PROXY_RETRY_DELAY_MS * (2 ** (attempt - 1)));
+        }
+      }
     }
+    return { ok: false, error: lastError };
   }
 
   async function evaluateAndCapture(row, fetched) {
@@ -3760,14 +3786,24 @@
     }
     const expectOk = statusMatches(status, row.expect);
 
-    let assertOk = true;
-    for (const exprRaw of row.assert || []) {
+    let assertionFailure = '';
+    let assertionError = '';
+    for (const exprRaw of normalizeAssertions(row.assert)) {
       const expr = subst(exprRaw);
       const r = await callJq('assert', expr, fetched.body);
-      if (!r.ok || !r.pass) assertOk = false;
+      if (!r.ok) {
+        assertionError = typeof r.error === 'string' && r.error.trim()
+          ? r.error.trim()
+          : 'Unknown assertion evaluator error';
+        break;
+      }
+      if (r.pass !== true) {
+        assertionFailure = expr;
+        break;
+      }
     }
 
-    const passed = status > 0 && expectOk && assertOk;
+    const passed = status > 0 && expectOk && !assertionFailure && !assertionError;
 
     if (passed) {
       for (const [k, filterRaw] of Object.entries(row.capture || {})) {
@@ -3786,7 +3822,11 @@
       return 'bug';
     }
 
-    row.result = completedResult(status === 0 ? 'error' : 'fail', fetched);
+    row.result = completedResult(status === 0 ? 'error' : 'fail', {
+      ...fetched,
+      assertionFailure,
+      assertionError,
+    });
     return row.continueOnFail ? 'fail-continue' : 'hardfail';
   }
 
@@ -3806,7 +3846,32 @@
       responseFileName: fetched.responseFileName,
       responseIsText: fetched.responseIsText,
       responseTruncated: fetched.responseTruncated,
+      assertionFailure: fetched.assertionFailure,
+      assertionError: fetched.assertionError,
     };
+  }
+
+  async function executeRow(row) {
+    let totalAttempts = 0;
+    let outcome = 'hardfail';
+
+    for (let attempt = 1; attempt <= ASSERTION_REQUEST_MAX_ATTEMPTS; attempt += 1) {
+      const fetched = await fireRequest(row);
+      totalAttempts += fetched.attempts || 1;
+      fetched.attempts = totalAttempts;
+      outcome = await evaluateAndCapture(row, fetched);
+
+      const shouldRetryAssertion = Boolean(
+        row.result?.assertionFailure || row.result?.assertionError,
+      ) &&
+        SAFE_RETRY_METHODS.has(row.method) &&
+        attempt < ASSERTION_REQUEST_MAX_ATTEMPTS &&
+        activeRunController?.signal.aborted !== true;
+      if (!shouldRetryAssertion) return outcome;
+      await wait(PROXY_RETRY_DELAY_MS * (2 ** (attempt - 1)));
+    }
+
+    return outcome;
   }
 
   function groupByLane(rows) {
@@ -3941,8 +4006,7 @@
           updateRowResult(row);
           updateSummary();
 
-          const fetched = await fireRequest(row);
-          const outcome = await evaluateAndCapture(row, fetched);
+          const outcome = await executeRow(row);
           const wasCancelled = activeRunController?.signal.aborted === true;
           if (mode === RUN_MODE.SINGLE) row.responsePanelOpen = true;
           updateRowResult(row);
