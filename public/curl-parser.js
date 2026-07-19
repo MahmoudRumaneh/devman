@@ -19,6 +19,11 @@
     '--no-buffer', '--path-as-is', '--show-error', '--silent', '--ssl-no-revoke', '--verbose',
     '-0', '-1', '-2', '-i', '-k', '-l', '-n', '-s', '-sS', '-v',
   ]);
+  const SHELL_DIALECT = Object.freeze({
+    POSIX: 'posix',
+    WINDOWS_CMD: 'windows-cmd',
+    POWERSHELL: 'powershell',
+  });
 
   function isCurlExecutable(value) {
     return /(?:^|[\\/])curl(?:\.exe)?$/i.test(value);
@@ -29,7 +34,7 @@
     let current = [];
     String(text || '').replace(/\r\n?/g, '\n').split('\n').forEach((line) => {
       const startsCommand = /^\s*(?:\$\s*)?(?:[^\s]*[\\/])?curl(?:\.exe)?(?:\s|$)/i.test(line);
-      const previousContinues = current.length > 0 && /\\\s*$/.test(current[current.length - 1]);
+      const previousContinues = current.length > 0 && /[\\^`]\s*$/.test(current[current.length - 1]);
       if (startsCommand && current.length && !previousContinues) {
         commands.push(current.join('\n'));
         current = [];
@@ -40,7 +45,71 @@
     return commands;
   }
 
+  function detectShellDialect(text) {
+    if (/(?:^|\s)\^"|\^\s*(?:\n|$)/m.test(text)) return SHELL_DIALECT.WINDOWS_CMD;
+    if (/`["'$`]|`\s*(?:\n|$)/m.test(text)) return SHELL_DIALECT.POWERSHELL;
+    return SHELL_DIALECT.POSIX;
+  }
+
+  function normalizeWindowsCmd(text) {
+    let normalized = '';
+    for (let index = 0; index < text.length; index += 1) {
+      if (text[index] === '^' && index + 1 < text.length) {
+        index += 1;
+        normalized += text[index] === '\n' ? '\\\n' : text[index];
+      } else {
+        normalized += text[index];
+      }
+    }
+    return normalized;
+  }
+
+  function normalizePowerShell(text) {
+    let normalized = '';
+    let quote = '';
+
+    for (let index = 0; index < text.length; index += 1) {
+      const character = text[index];
+      const next = text[index + 1];
+
+      if (quote === "'") {
+        if (character === "'" && next === "'") {
+          normalized += "'\"'\"'";
+          index += 1;
+        } else {
+          normalized += character;
+          if (character === "'") quote = '';
+        }
+        continue;
+      }
+
+      if (character === '`' && index + 1 < text.length) {
+        index += 1;
+        if (next === '\n') normalized += '\\\n';
+        else if ('"\\\'#'.includes(next)) normalized += `\\${next}`;
+        else if (/\s/.test(next)) normalized += quote === '"' ? next : `\\${next}`;
+        else normalized += next;
+        continue;
+      }
+
+      normalized += character;
+      if (!quote && (character === "'" || character === '"')) quote = character;
+      else if (quote === '"' && character === '"') quote = '';
+    }
+
+    return normalized;
+  }
+
+  function normalizeShellSyntax(text) {
+    const normalizedNewlines = String(text || '').replace(/\r\n?/g, '\n');
+    const dialect = detectShellDialect(normalizedNewlines);
+    if (dialect === SHELL_DIALECT.WINDOWS_CMD) return normalizeWindowsCmd(normalizedNewlines);
+    if (dialect === SHELL_DIALECT.POWERSHELL) return normalizePowerShell(normalizedNewlines);
+    return normalizedNewlines;
+  }
+
   function tokenizeShell(text) {
+    const normalizedText = normalizeShellSyntax(text);
     const tokens = [];
     let token = '';
     let quote = '';
@@ -55,8 +124,8 @@
       tokenStarted = false;
     };
 
-    for (let index = 0; index < text.length; index += 1) {
-      const character = text[index];
+    for (let index = 0; index < normalizedText.length; index += 1) {
+      const character = normalizedText[index];
       if (character === '\n') line += 1;
 
       if (quote === "'") {
@@ -67,8 +136,8 @@
       if (quote === '"') {
         if (character === '"') {
           quote = '';
-        } else if (character === '\\' && index + 1 < text.length) {
-          const next = text[index + 1];
+        } else if (character === '\\' && index + 1 < normalizedText.length) {
+          const next = normalizedText[index + 1];
           if (next === '\n') {
             index += 1;
             line += 1;
@@ -89,13 +158,13 @@
         tokenStarted = true;
         quote = character;
       } else if (character === '\\') {
-        if (text[index + 1] === '\n') {
+        if (normalizedText[index + 1] === '\n') {
           index += 1;
           line += 1;
-        } else if (index + 1 < text.length) {
+        } else if (index + 1 < normalizedText.length) {
           if (!tokenStarted) tokenLine = line;
           tokenStarted = true;
-          token += text[index + 1];
+          token += normalizedText[index + 1];
           index += 1;
         } else {
           return { tokens, issue: { line, message: 'The cURL command ends with an unfinished escape' } };
@@ -103,7 +172,7 @@
       } else if (/\s/.test(character)) {
         pushToken();
       } else if (character === '#' && !tokenStarted) {
-        while (index + 1 < text.length && text[index + 1] !== '\n') index += 1;
+        while (index + 1 < normalizedText.length && normalizedText[index + 1] !== '\n') index += 1;
       } else {
         if (!tokenStarted) tokenLine = line;
         tokenStarted = true;

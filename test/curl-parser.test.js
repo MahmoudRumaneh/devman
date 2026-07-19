@@ -23,6 +23,43 @@ test('imports a browser cURL command with headers, bearer authorization, and coo
   assert.equal(parsed.routes[0].headers['x-tenant-id'], 'tenant-1');
 });
 
+test('imports a Windows CMD cURL command with caret escapes and line continuations', () => {
+  const input = String.raw`curl ^"https://api.example.com/api/v1/domains/suggest^" ^
+    -H ^"accept: application/json, text/plain, */*^" ^
+    -H ^"authorization: Bearer sample-token^" ^
+    -H ^"sec-ch-ua: ^\^"Not;A=Brand^\^";v=^\^"8^\^", ^\^"Chromium^\^";v=^\^"150^\^"^" ^
+    -b ^"session=abc; encoded=foo^%^5Ebar; metric=one^$two^" ^
+    --data-raw ^"^{^\^"academyName^\^":^\^"Esraa academ^\^"^}^"`;
+
+  const parsed = parseCurlText(input);
+
+  assert.deepEqual(parsed.issues, []);
+  assert.equal(parsed.routes.length, 1);
+  assert.equal(parsed.routes[0].method, 'POST');
+  assert.equal(parsed.routes[0].path, 'https://api.example.com/api/v1/domains/suggest');
+  assert.equal(parsed.routes[0].headers.authorization, 'Bearer sample-token');
+  assert.equal(parsed.routes[0].headers['sec-ch-ua'], '"Not;A=Brand";v="8", "Chromium";v="150"');
+  assert.equal(parsed.routes[0].headers.Cookie, 'session=abc; encoded=foo%5Ebar; metric=one$two');
+  assert.equal(parsed.routes[0].body, '{"academyName":"Esraa academ"}');
+});
+
+test('imports PowerShell cURL commands with backtick escaping', () => {
+  const input = [
+    'curl.exe "https://api.example.com/users" `',
+    '  -H "content-type: application/json" `',
+    '  --data-raw "{`"name`":`"A B`"}"',
+  ].join('\n');
+
+  const parsed = parseCurlText(input);
+
+  assert.deepEqual(parsed.issues, []);
+  assert.equal(parsed.routes.length, 1);
+  assert.equal(parsed.routes[0].method, 'POST');
+  assert.equal(parsed.routes[0].path, 'https://api.example.com/users');
+  assert.equal(parsed.routes[0].headers['content-type'], 'application/json');
+  assert.equal(parsed.routes[0].body, '{"name":"A B"}');
+});
+
 test('infers POST and preserves a quoted JSON request body', () => {
   const parsed = parseCurlText(String.raw`curl --json '{"name":"A B","active":true}' https://api.example.com/users`);
 

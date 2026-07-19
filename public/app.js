@@ -141,6 +141,9 @@
   };
 
   function emptyRow(over = {}) {
+    const persistedResponsePanelOpen = typeof over.responsePanelOpen === 'boolean'
+      ? over.responsePanelOpen
+      : null;
     const row = {
       id: newRowId(),
       laneId: null,
@@ -161,15 +164,18 @@
       note: '',
       result: null,
       activePanel: ROW_PANEL.NONE,
+      responsePanelOpen: false,
       ...over,
     };
     row.expect = normalizeStatusExpectation(row.expect);
     if (!BODY_MODE_VALUES.has(row.bodyMode)) row.bodyMode = BODY_MODE.RAW;
     row.formData = normalizeFormData(row.formData);
     row.binaryFile = normalizeFileMetadata(row.binaryFile);
-    if (!ROW_PANEL_VALUES.has(row.activePanel)) row.activePanel = ROW_PANEL.NONE;
+    const legacyResponsePanelOpen = row.activePanel === ROW_PANEL.RESPONSE;
+    if (!ROW_PANEL_VALUES.has(row.activePanel) || legacyResponsePanelOpen) row.activePanel = ROW_PANEL.NONE;
     if (row.expanded && row.activePanel === ROW_PANEL.NONE) row.activePanel = ROW_PANEL.BODY;
-    if (row.activePanel === ROW_PANEL.RESPONSE && !row.result) row.activePanel = ROW_PANEL.NONE;
+    row.responsePanelOpen = Boolean(row.result) &&
+      (persistedResponsePanelOpen ?? legacyResponsePanelOpen);
     const importSource = normalizeImportSource(row.importSource);
     if (importSource) row.importSource = importSource;
     else delete row.importSource;
@@ -1046,7 +1052,7 @@
       saveDebounced();
     }
 
-    row.activePanel = ROW_PANEL.RESPONSE;
+    row.responsePanelOpen = true;
     clearFailureHighlight();
     highlightedFailureRowId = row.id;
     renderRows();
@@ -3021,6 +3027,7 @@
     bodyBtn.textContent = bodyIsOpen ? 'Hide' : 'Body';
     bodyBtn.title = bodyIsOpen ? 'Hide request body' : 'Show request body';
     bodyBtn.setAttribute('aria-expanded', String(bodyIsOpen));
+    bodyBtn.setAttribute('aria-controls', `request-body-panel-${row.id}`);
     bodyBtn.addEventListener('click', () => {
       row.activePanel = bodyIsOpen ? ROW_PANEL.NONE : ROW_PANEL.BODY;
       renderRows();
@@ -3097,7 +3104,8 @@
     for (const chip of buildAdvancedChips(row)) subline.appendChild(chip);
     if (subline.childNodes.length) wrap.appendChild(subline);
 
-    if (row.activePanel !== ROW_PANEL.NONE) {
+    const responseIsOpen = row.responsePanelOpen === true && hasInspectableResult;
+    if (row.activePanel !== ROW_PANEL.NONE || responseIsOpen) {
       const extra = document.createElement('div');
       extra.className = 'request-extra';
 
@@ -3106,6 +3114,7 @@
       if (row.activePanel === ROW_PANEL.BODY) {
         const bodyPanel = document.createElement('section');
         bodyPanel.className = 'request-panel request-body-panel';
+        bodyPanel.id = `request-body-panel-${row.id}`;
         const bodyHead = document.createElement('div');
         bodyHead.className = 'panel-head body-panel-head';
         const bodyTitle = document.createElement('div');
@@ -3216,9 +3225,7 @@
         extra.appendChild(bodyPanel);
       }
 
-      if (row.activePanel === ROW_PANEL.RESPONSE && hasInspectableResult) {
-        extra.appendChild(buildResponsePanel(row));
-      }
+      if (responseIsOpen) extra.appendChild(buildResponsePanel(row));
 
       wrap.appendChild(extra);
     }
@@ -3230,6 +3237,7 @@
     const r = row.result;
     const panel = document.createElement('section');
     panel.className = 'request-panel response-panel';
+    panel.id = `response-panel-${row.id}`;
 
     const head = document.createElement('div');
     head.className = 'panel-head';
@@ -3362,15 +3370,16 @@
       const responseToggle = document.createElement('button');
       responseToggle.className = 'result-toggle response-panel-toggle';
       responseToggle.type = 'button';
-      const responseIsOpen = row.activePanel === ROW_PANEL.RESPONSE;
+      const responseIsOpen = row.responsePanelOpen === true;
       responseToggle.innerHTML = ICONS.response;
       const responseLabel = document.createElement('span');
       responseLabel.textContent = responseIsOpen ? 'Hide' : 'Response';
       responseToggle.appendChild(responseLabel);
       responseToggle.title = responseIsOpen ? 'Hide response details' : 'Show response details';
       responseToggle.setAttribute('aria-expanded', String(responseIsOpen));
+      responseToggle.setAttribute('aria-controls', `response-panel-${row.id}`);
       responseToggle.addEventListener('click', () => {
-        row.activePanel = responseIsOpen ? ROW_PANEL.NONE : ROW_PANEL.RESPONSE;
+        row.responsePanelOpen = !responseIsOpen;
         renderRows();
         save();
       });
@@ -3381,7 +3390,7 @@
   }
 
   function updateRowResult(row) {
-    if (row.activePanel !== ROW_PANEL.NONE && row.result?.state !== 'pending') {
+    if ((row.activePanel !== ROW_PANEL.NONE || row.responsePanelOpen) && row.result?.state !== 'pending') {
       renderRows();
       return;
     }
@@ -3935,7 +3944,7 @@
           const fetched = await fireRequest(row);
           const outcome = await evaluateAndCapture(row, fetched);
           const wasCancelled = activeRunController?.signal.aborted === true;
-          if (mode === RUN_MODE.SINGLE) row.activePanel = ROW_PANEL.RESPONSE;
+          if (mode === RUN_MODE.SINGLE) row.responsePanelOpen = true;
           updateRowResult(row);
           updateSummary();
           if (mode === RUN_MODE.SINGLE) scrollResponsePanelIntoView(row);
