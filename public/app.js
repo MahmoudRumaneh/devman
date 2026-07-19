@@ -3,6 +3,8 @@
 
   const STORAGE_KEY = 'devmanApi.v3';
   const THEME_KEY = 'devmanApi.theme';
+  const GUIDE_SEEN_KEY = 'devmanApi.guideSeen.v1';
+  const GUIDE_SEEN_VALUE = 'seen';
   const LEGACY_STORAGE_KEY = 'apiTestStudio.v3';
   const LEGACY_THEME_KEY = 'apiTestStudio.theme';
   const DEFAULT_PROJECT_NAME = 'devman-api';
@@ -27,6 +29,7 @@
   const HEADER_NAME_PATTERN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
   const DEFAULT_CUSTOM_HEADER_NAME = 'X-Custom-Header';
   const GROUP_NAME_MAX_LENGTH = 80;
+  const GUIDE_CLOSE_ANIMATION_MS = 180;
   const ICONS = {
     copy: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M15 9V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h3"></path></svg>',
     check: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"></path></svg>',
@@ -1298,32 +1301,120 @@
   function bindGuide() {
     const trigger = el('guideBtn');
     const modal = el('guideModal');
-    const closeBtn = el('guideClose');
-    const doneBtn = el('guideDone');
-    if (!trigger || !modal || !closeBtn || !doneBtn) return;
+    if (!trigger || !modal) return;
 
-    const close = () => {
-      modal.hidden = true;
+    const closeBtn = el('guideClose');
+    const skipBtn = el('guideSkip');
+    const backBtn = el('guideBack');
+    const doneBtn = el('guideDone');
+    const progressLabel = el('guideProgressLabel');
+    const progressBar = el('guideProgressBar');
+    const pages = [...modal.querySelectorAll('[data-guide-page]')];
+    if (!closeBtn || !skipBtn || !backBtn || !doneBtn
+      || !progressLabel || !progressBar || !pages.length) return;
+
+    let pageIndex = 0;
+    let returnFocus = null;
+    let closeTimer;
+
+    const focusableSelector = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+    const syncPage = ({ moveFocus = false } = {}) => {
+      pages.forEach((page, index) => {
+        const isActive = index === pageIndex;
+        page.hidden = !isActive;
+        page.classList.toggle('is-active', isActive);
+      });
+      const currentStep = pageIndex + 1;
+      progressLabel.textContent = `Step ${currentStep} of ${pages.length}`;
+      progressBar.style.setProperty('--guide-progress', `${(currentStep / pages.length) * 100}%`);
+      backBtn.hidden = pageIndex === 0;
+      doneBtn.innerHTML = pageIndex === pages.length - 1
+        ? 'Start testing <span aria-hidden="true">→</span>'
+        : 'Continue <span aria-hidden="true">→</span>';
+
+      if (moveFocus) {
+        const pageHeading = pages[pageIndex].querySelector('h4, h3');
+        window.requestAnimationFrame(() => pageHeading?.focus());
+      }
+    };
+
+    const markGuideSeen = () => localStorage.setItem(GUIDE_SEEN_KEY, GUIDE_SEEN_VALUE);
+
+    const close = ({ focusTarget = returnFocus } = {}) => {
+      if (modal.hidden) return;
+      markGuideSeen();
+      modal.classList.remove('is-visible');
       document.body.classList.remove('modal-open');
       document.removeEventListener('keydown', onKeydown);
-      trigger.focus();
+      window.clearTimeout(closeTimer);
+      closeTimer = window.setTimeout(() => {
+        modal.hidden = true;
+        if (focusTarget?.isConnected) focusTarget.focus({ preventScroll: true });
+      }, GUIDE_CLOSE_ANIMATION_MS);
     };
 
     const onKeydown = (event) => {
-      if (event.key === 'Escape') close();
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        close();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+
+      const focusableElements = [...modal.querySelectorAll(focusableSelector)]
+        .filter((element) => !element.hidden && element.offsetParent !== null);
+      if (!focusableElements.length) return;
+      const first = focusableElements[0];
+      const last = focusableElements[focusableElements.length - 1];
+      const focusIsOutsideTabOrder = !focusableElements.includes(document.activeElement);
+      if (event.shiftKey && (document.activeElement === first || focusIsOutsideTabOrder)) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     };
 
-    trigger.addEventListener('click', () => {
+    const open = ({ source = null } = {}) => {
+      window.clearTimeout(closeTimer);
+      returnFocus = source instanceof HTMLElement ? source : null;
+      pageIndex = 0;
+      syncPage();
       modal.hidden = false;
       document.body.classList.add('modal-open');
       document.addEventListener('keydown', onKeydown);
-      closeBtn.focus();
-    });
+      window.requestAnimationFrame(() => {
+        modal.classList.add('is-visible');
+        el('guideTitle').focus();
+      });
+    };
+
+    trigger.addEventListener('click', () => open({ source: trigger }));
     closeBtn.addEventListener('click', close);
-    doneBtn.addEventListener('click', close);
+    skipBtn.addEventListener('click', close);
+    backBtn.addEventListener('click', () => {
+      if (pageIndex === 0) return;
+      pageIndex -= 1;
+      syncPage({ moveFocus: true });
+    });
+    doneBtn.addEventListener('click', () => {
+      if (pageIndex < pages.length - 1) {
+        pageIndex += 1;
+        syncPage({ moveFocus: true });
+        return;
+      }
+      close({ focusTarget: el('baseUrl') });
+    });
     modal.addEventListener('click', (event) => {
       if (event.target === modal) close();
     });
+    syncPage();
+
+    if (localStorage.getItem(GUIDE_SEEN_KEY) !== GUIDE_SEEN_VALUE) {
+      window.requestAnimationFrame(() => open());
+    }
   }
 
   // ---- variable substitution -------------------------------------------------

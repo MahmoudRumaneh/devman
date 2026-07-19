@@ -266,38 +266,103 @@ curl 'https://api.example.com/users' \
     </div>
   </div>
 
-  <div id="guideModal" class="modal-backdrop" hidden>
-    <div class="modal guide-modal" role="dialog" aria-modal="true" aria-labelledby="guideTitle" aria-describedby="guideIntro">
-      <div class="guide-head">
-        <div>
-          <span class="guide-eyebrow">Start in a minute</span>
-          <h3 id="guideTitle">How to use Devman API</h3>
+  <div id="guideModal" class="modal-backdrop guide-backdrop" hidden>
+    <section class="modal guide-modal" role="dialog" aria-modal="true" aria-labelledby="guideTitle" aria-describedby="guideIntro">
+      <span class="guide-glow guide-glow-one" aria-hidden="true"></span>
+      <span class="guide-glow guide-glow-two" aria-hidden="true"></span>
+
+      <header class="guide-head">
+        <div class="guide-heading">
+          <span class="guide-logo-wrap" aria-hidden="true">
+            <img src="devman-api-logo.png" alt="" width="44" height="33" />
+          </span>
+          <div>
+            <span class="guide-eyebrow">Welcome to Devman API</span>
+            <h3 id="guideTitle" tabindex="-1">Test complete API flows, without the busywork</h3>
+          </div>
         </div>
         <button id="guideClose" class="guide-close" type="button" aria-label="Close guide">×</button>
+      </header>
+
+      <div class="guide-progress" aria-label="Guide progress">
+        <span id="guideProgressLabel" role="status" aria-live="polite">Step 1 of 2</span>
+        <span class="guide-progress-track" aria-hidden="true"><span id="guideProgressBar"></span></span>
       </div>
-      <p id="guideIntro" class="guide-intro">Just follow these four steps.</p>
-      <ol class="guide-steps">
-        <li>
-          <span class="guide-step-number">1</span>
-          <div><strong>Connect</strong><span>Add your base URL and token.</span></div>
-        </li>
-        <li>
-          <span class="guide-step-number">2</span>
-          <div><strong>Add your endpoints</strong><span>Import a Swagger URL, paste routes, or download the JSON template for a complete staged suite.</span></div>
-        </li>
-        <li>
-          <span class="guide-step-number">3</span>
-          <div><strong>Import the JSON file</strong><span>Press “Import JSON / suite” and select your file, or drag it into the drop area.</span></div>
-        </li>
-        <li>
-          <span class="guide-step-number">4</span>
-          <div><strong>Run</strong><span>Press “Run all” and review the results.</span></div>
-        </li>
-      </ol>
-      <div class="modal-actions guide-actions">
-        <button id="guideDone" class="btn primary" type="button">Got it</button>
+
+      <div class="guide-content">
+        <div class="guide-page is-active" data-guide-page="0">
+          <p id="guideIntro" class="guide-intro">You have finished building a feature. Now Devman API helps you test the real journey around it—not only one endpoint at a time.</p>
+
+          <div class="guide-feature-grid">
+            <article class="guide-feature-card">
+              <span class="guide-feature-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M12 3v12m0 0 4-4m-4 4-4-4"></path><path d="M5 17v2a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-2"></path></svg>
+              </span>
+              <div><strong>Import your way</strong><span>Paste a Swagger or OpenAPI URL, import a JSON suite, drop in a file, or paste routes and cURL commands.</span></div>
+            </article>
+            <article class="guide-feature-card">
+              <span class="guide-feature-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="m8 5 11 7-11 7Z"></path><path d="M3 5v14"></path></svg>
+              </span>
+              <div><strong>Run the real workflow</strong><span>Requests run in order. Tokens and captured values move safely from one step to the next.</span></div>
+            </article>
+            <article class="guide-feature-card">
+              <span class="guide-feature-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M4 5h16v14H4z"></path><path d="m8 9 2 2-2 2m4 1h4"></path></svg>
+              </span>
+              <div><strong>See exactly what happened</strong><span>Inspect every request, response, status, captured variable, passed check, known bug, and failure in one workspace.</span></div>
+            </article>
+          </div>
+
+          <div class="guide-flow-preview" aria-label="Example API workflow: authenticate, create, verify">
+            <span><small>01</small> Authenticate</span>
+            <i aria-hidden="true">→</i>
+            <span><small>02</small> Create</span>
+            <i aria-hidden="true">→</i>
+            <span><small>03</small> Verify</span>
+          </div>
+        </div>
+
+        <div class="guide-page" data-guide-page="1" hidden>
+          <div class="guide-page-heading">
+            <span class="guide-eyebrow">Your first run</span>
+            <h4 tabindex="-1">From API docs to a clear result in four steps</h4>
+            <p>No complicated setup and no repeating requests manually. Build the flow once, then run it whenever your API changes.</p>
+          </div>
+
+          <ol class="guide-steps">
+            <li>
+              <span class="guide-step-number">1</span>
+              <div><strong>Connect your API</strong><span>Enter the Base URL, then add the tokens your authenticated requests need. Tenant headers are available when your API uses them.</span></div>
+            </li>
+            <li>
+              <span class="guide-step-number">2</span>
+              <div><strong>Bring in your endpoints</strong><span>Import Swagger/OpenAPI for a ready-to-test workspace, or load a JSON suite when you already know the complete flow.</span></div>
+            </li>
+            <li>
+              <span class="guide-step-number">3</span>
+              <div><strong>Run everything in order</strong><span>Click <b>Run all</b>. Devman API waits for each response and reuses captured IDs, tokens, and other values in the following steps.</span></div>
+            </li>
+            <li>
+              <span class="guide-step-number">4</span>
+              <div><strong>Inspect, fix, and run again</strong><span>Open any result to compare the expected status with the actual response, then adjust your API or test and rerun the flow.</span></div>
+            </li>
+          </ol>
+
+          <aside class="guide-tip">
+            <span aria-hidden="true">✦</span>
+            <p><strong>Everything stays together.</strong> Organize related endpoints into groups, search large suites, export your workspace, and save a Markdown report when the run is complete.</p>
+          </aside>
+        </div>
       </div>
-    </div>
+
+      <footer class="modal-actions guide-actions">
+        <button id="guideSkip" class="btn ghost guide-skip" type="button">Skip guide</button>
+        <span class="guide-action-spacer"></span>
+        <button id="guideBack" class="btn ghost" type="button" hidden>Back</button>
+        <button id="guideDone" class="btn primary guide-next" type="button">Continue <span aria-hidden="true">→</span></button>
+      </footer>
+    </section>
   </div>
 
   <div id="swaggerImportModal" class="modal-backdrop" hidden>
