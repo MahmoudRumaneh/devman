@@ -60,6 +60,7 @@
       {
         name: 'register admin and capture token',
         stage: 0,
+        goal: 'Create the administrator account',
         method: 'POST',
         path: '/auth/register',
         body: {
@@ -75,6 +76,7 @@
       {
         name: 'read current user and capture tenant',
         stage: 10,
+        goal: 'Load the authenticated user context',
         method: 'GET',
         path: '/auth/me',
         auth_var: 'ADMIN_TOKEN',
@@ -87,6 +89,7 @@
       {
         name: 'authenticated endpoint example',
         stage: 20,
+        goal: 'Verify protected API access',
         method: 'GET',
         path: '/admin/courses/queue?tab=ALL',
         auth_var: 'ADMIN_TOKEN',
@@ -978,6 +981,10 @@
     } else {
       document.documentElement.setAttribute('data-theme', mode);
     }
+    const resolvedTheme = mode === 'auto'
+      ? window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+      : mode;
+    document.documentElement.setAttribute('data-resolved-theme', resolvedTheme);
     el('themeToggle').textContent = { light: 'Light', dark: 'Dark', auto: 'Auto' }[mode];
   }
 
@@ -991,6 +998,9 @@
       const nextMode = order[(order.indexOf(current) + 1) % order.length];
       localStorage.setItem(THEME_KEY, nextMode);
       applyTheme(nextMode);
+    });
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+      if ((localStorage.getItem(THEME_KEY) || 'auto') === 'auto') applyTheme('auto');
     });
   }
 
@@ -1691,7 +1701,7 @@
 
     const distinctStages = [...new Set(rawSteps.map((s) => s.stage ?? 0))].sort((a, b) => a - b);
     const laneIdForStage = new Map(distinctStages.map((stage) => [stage, newLaneId({
-      name: `Stage ${stage}`,
+      name: window.DevmanSuiteUtils.groupNameForStage(stage, rawSteps),
       collapsed: true,
     })]));
     const laneOrder = distinctStages.map((s) => laneIdForStage.get(s));
@@ -1705,6 +1715,7 @@
     const token = '${' + varName + '}';
     const repl = (s) => (typeof s === 'string' ? s.split(token).join(String(value)) : s);
     clone.name = repl(clone.name);
+    clone.goal = repl(clone.goal);
     clone.path = repl(clone.path);
     if (clone.body !== undefined && clone.body !== null) {
       clone.body = JSON.parse(repl(JSON.stringify(clone.body)));
@@ -2921,10 +2932,14 @@
     const pathCell = document.createElement('div');
     pathCell.className = 'request-path';
     pathCell.dataset.label = 'Path';
+    const routeLabel = document.createElement('div');
+    routeLabel.className = 'request-route-label';
+    routeLabel.innerHTML = '<span aria-hidden="true">/</span><strong>Endpoint route</strong>';
     const pathInput = document.createElement('input');
     pathInput.type = 'text';
     pathInput.className = 'path-input';
     pathInput.placeholder = '/admin/courses/queue';
+    pathInput.setAttribute('aria-label', 'Endpoint route');
     pathInput.value = row.path;
     pathInput.title = row.path || 'Endpoint path';
     pathInput.addEventListener('input', () => {
@@ -2952,6 +2967,7 @@
       variant: 'endpoint-copy-btn',
     }));
     pathInputWrap.appendChild(pathActions);
+    pathCell.appendChild(routeLabel);
     pathCell.appendChild(pathInputWrap);
 
     const roleCell = document.createElement('div');
@@ -3390,7 +3406,7 @@
       const responseIsOpen = row.responsePanelOpen === true;
       responseToggle.innerHTML = ICONS.response;
       const responseLabel = document.createElement('span');
-      responseLabel.textContent = responseIsOpen ? 'Hide' : 'Response';
+      responseLabel.textContent = responseIsOpen ? 'Hide' : 'View';
       responseToggle.appendChild(responseLabel);
       responseToggle.title = responseIsOpen ? 'Hide response details' : 'Show response details';
       responseToggle.setAttribute('aria-expanded', String(responseIsOpen));
@@ -4109,19 +4125,22 @@
   async function saveReport() {
     const markdown = buildReportMarkdown();
     const rawName = el('suiteName').value || DEFAULT_PROJECT_NAME;
-    const name = rawName.replace(/[^a-zA-Z0-9_-]/g, '') || DEFAULT_PROJECT_NAME;
     try {
-      const runId = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
+      const reportFileName = window.DevmanFileNameUtils.fileNameWithExtension(
+        rawName,
+        '.md',
+        DEFAULT_PROJECT_NAME,
+      );
       const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = url;
-      anchor.download = `${name}-${runId}.md`;
+      anchor.download = reportFileName;
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
       URL.revokeObjectURL(url);
-      toast('Report downloaded');
+      toast(`Report downloaded as ${reportFileName}`);
     } catch (e) {
       toast(`Failed to download report: ${e}`);
     }
@@ -4750,7 +4769,7 @@
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = name;
+    a.download = window.DevmanFileNameUtils.fileNameWithExtension(name, '.json', DEFAULT_PROJECT_NAME);
     a.click();
     URL.revokeObjectURL(a.href);
   }

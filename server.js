@@ -21,6 +21,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { fetchWithNetworkRetry } = require('./lib/fetch-retry');
 const { importOpenApiFromUrl } = require('./lib/swagger-import');
+const { fileNameWithExtension } = require('./public/file-name-utils');
 const {
   applyUpstreamResponseHeaders,
   buildUpstreamRequest,
@@ -163,13 +164,12 @@ async function handleSaveReport(req, res) {
     return sendJson(res, 400, { error: `bad request body: ${e.message}` });
   }
 
-  const rawName = (payload.name || 'devman-api').trim();
-  const safeName = rawName.replace(/[^a-zA-Z0-9_-]/g, '') || 'devman-api';
+  const rawName = typeof payload.name === 'string' ? payload.name : 'devman-api';
+  const fileName = fileNameWithExtension(rawName, '.md', 'devman-api');
   const markdown = payload.markdown || '';
-  const runId = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
 
   fs.mkdirSync(REPORTS_DIR, { recursive: true });
-  const outPath = path.join(REPORTS_DIR, `${safeName}-${runId}.md`);
+  const outPath = path.join(REPORTS_DIR, fileName);
   fs.writeFileSync(outPath, markdown, 'utf-8');
   return sendJson(res, 200, { path: outPath });
 }
