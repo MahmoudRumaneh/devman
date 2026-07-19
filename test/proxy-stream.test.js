@@ -3,6 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { EventEmitter } = require('node:events');
+const { parseCurlText } = require('../public/curl-parser');
 const {
   applyUpstreamResponseHeaders,
   buildUpstreamRequest,
@@ -21,6 +22,41 @@ test('builds an exact binary upstream request body', () => {
   assert.equal(request.headers['Content-Type'], 'application/pdf');
   assert.equal(request.headers['Content-Length'], undefined);
   assert.deepEqual(request.body, Buffer.from('binary contents'));
+});
+
+test('encodes Unicode header values as fetch-safe UTF-8 bytes', () => {
+  const authorization = 'Bearer placeholder — مثال';
+  const request = buildUpstreamRequest({
+    method: 'GET',
+    headers: { Authorization: authorization },
+  });
+
+  assert.doesNotThrow(() => new Headers(request.headers));
+  assert.equal(
+    Buffer.from(request.headers.Authorization, 'latin1').toString('utf8'),
+    authorization,
+  );
+});
+
+test('builds a fetch-safe request from a cURL header containing an em dash', () => {
+  const curl = String.raw`curl --request 'GET' \
+    --url 'https://api.example.com/health' \
+    --header 'Authorization: Bearer <<PASTE TOKEN HERE — no token was available>>'`;
+  const parsed = parseCurlText(curl);
+
+  assert.deepEqual(parsed.issues, []);
+  const request = buildUpstreamRequest(parsed.routes[0]);
+  assert.doesNotThrow(() => new Headers(request.headers));
+});
+
+test('rejects unsafe header control characters with a clear error', () => {
+  assert.throws(
+    () => buildUpstreamRequest({
+      method: 'GET',
+      headers: { 'X-Test': 'safe\r\ninjected: value' },
+    }),
+    /Header "X-Test" contains an unsafe control character/,
+  );
 });
 
 test('builds multipart text and file fields with a generated boundary', async () => {

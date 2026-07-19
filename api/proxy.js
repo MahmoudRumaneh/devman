@@ -3,6 +3,7 @@
 const { getErrorMessage, getJsonBody, sendJson } = require('../lib/api');
 const { fetchWithNetworkRetry } = require('../lib/fetch-retry');
 const { validateProxyUrl } = require('../lib/proxy-security');
+const { normalizeHeaders } = require('../lib/proxy-stream');
 
 const METHODS_WITHOUT_BODY = new Set(['GET', 'HEAD']);
 const SUPPORTED_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']);
@@ -16,9 +17,7 @@ module.exports = async function proxy(request, response) {
   try {
     const payload = await getJsonBody(request);
     const method = typeof payload.method === 'string' ? payload.method.toUpperCase() : 'GET';
-    const headers = payload.headers && typeof payload.headers === 'object' && !Array.isArray(payload.headers)
-      ? payload.headers
-      : {};
+    const headers = normalizeHeaders(payload.headers);
     const body = typeof payload.body === 'string' ? payload.body : undefined;
 
     if (!SUPPORTED_METHODS.has(method)) return sendJson(response, 400, { error: 'Unsupported HTTP method' });

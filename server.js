@@ -25,6 +25,7 @@ const { fileNameWithExtension } = require('./public/file-name-utils');
 const {
   applyUpstreamResponseHeaders,
   buildUpstreamRequest,
+  normalizeHeaders,
   streamUpstreamResponse,
 } = require('./lib/proxy-stream');
 
@@ -83,7 +84,7 @@ async function handleProxy(req, res) {
 
   const method = (payload.method || 'GET').toUpperCase();
   const url = payload.url || '';
-  const headers = payload.headers || {};
+  const headers = normalizeHeaders(payload.headers);
   const bodyText = payload.body;
 
   const started = Date.now();
