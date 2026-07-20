@@ -7873,3 +7873,22 @@ body.has-group-selection .back-to-top {
   .result-cell { grid-column: 1; grid-row: 4; }
   .actions-cell { grid-column: 1; grid-row: 5; }
 }
+
+/* Wide endpoint cards: keep auth compact and reserve room for counted actions. */
+@container endpoint-card (min-width: 781px) {
+  .request-main {
+    grid-template-columns:
+      minmax(140px, 210px)
+      minmax(96px, 116px)
+      minmax(135px, 160px)
+      minmax(332px, 1fr);
+  }
+
+  .actions-cell {
+    grid-template-columns:
+      minmax(56px, 0.72fr)
+      minmax(98px, 1.12fr)
+      minmax(92px, 1.08fr)
+      minmax(60px, 0.78fr);
+  }
+}
