@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const { EventEmitter } = require('node:events');
 const { parseCurlText } = require('../public/curl-parser');
 const {
+  applyProxyErrorHeaders,
   applyUpstreamResponseHeaders,
   buildUpstreamRequest,
   streamUpstreamResponse,
@@ -113,4 +114,15 @@ test('streams upstream bytes and preserves safe download metadata', async () => 
   assert.equal(response.headers['content-disposition'], 'attachment; filename="sample.pdf"');
   assert.equal(Buffer.concat(response.chunks).toString(), 'streamed file');
   assert.equal(response.ended, true);
+});
+
+test('exposes the completed retry count on proxy errors', () => {
+  const response = { headers: {}, setHeader(name, value) { this.headers[name] = value; } };
+  const error = new Error('fetch failed');
+  error.attempts = 3;
+
+  applyProxyErrorHeaders(response, error);
+
+  assert.equal(response.headers['X-Devman-Proxy'], 'error');
+  assert.equal(response.headers['X-Devman-Attempts'], '3');
 });

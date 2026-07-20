@@ -23,18 +23,45 @@ test('retries a transient GET failure and returns the attempt count', async () =
   assert.equal(calls, 3);
 });
 
-test('does not retry a POST request', async () => {
+test('retries a transient POST failure and returns the attempt count', async () => {
   let calls = 0;
+  const expectedResponse = { status: 201 };
   const fetchImplementation = async () => {
     calls += 1;
-    throw new TypeError('fetch failed');
+    if (calls < 3) throw new TypeError('fetch failed');
+    return expectedResponse;
   };
 
-  await assert.rejects(
-    fetchWithNetworkRetry('https://example.com', { method: 'POST' }, { fetchImplementation }),
-    (error) => error instanceof NetworkRequestError && error.attempts === 1,
-  );
-  assert.equal(calls, 1);
+  const result = await fetchWithNetworkRetry('https://example.com', { method: 'POST' }, {
+    fetchImplementation,
+    sleep: async () => {},
+  });
+
+  assert.equal(result.response, expectedResponse);
+  assert.equal(result.attempts, 3);
+  assert.equal(calls, 3);
+});
+
+test('uses bounded retries for every supported HTTP method', async () => {
+  const methods = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'];
+
+  for (const method of methods) {
+    let calls = 0;
+    const fetchImplementation = async () => {
+      calls += 1;
+      throw new TypeError('fetch failed');
+    };
+
+    await assert.rejects(
+      fetchWithNetworkRetry('https://example.com', { method }, {
+        fetchImplementation,
+        maxAttempts: 2,
+        sleep: async () => {},
+      }),
+      (error) => error instanceof NetworkRequestError && error.attempts === 2,
+    );
+    assert.equal(calls, 2, `${method} should use the configured retry limit`);
+  }
 });
 
 test('retries a transient PATCH transport failure', async () => {

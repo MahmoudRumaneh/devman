@@ -23,6 +23,7 @@ const { fetchWithNetworkRetry } = require('./lib/fetch-retry');
 const { importOpenApiFromUrl } = require('./lib/swagger-import');
 const { fileNameWithExtension } = require('./public/file-name-utils');
 const {
+  applyProxyErrorHeaders,
   applyUpstreamResponseHeaders,
   buildUpstreamRequest,
   normalizeHeaders,
@@ -132,7 +133,7 @@ async function handleProxyStream(req, res) {
     applyUpstreamResponseHeaders(upstream, res, attempts, Date.now() - started);
     return streamUpstreamResponse(upstream, res);
   } catch (error) {
-    res.setHeader('X-Devman-Proxy', 'error');
+    applyProxyErrorHeaders(res, error);
     return sendJson(res, 502, { error: error instanceof Error ? error.message : String(error) });
   }
 }

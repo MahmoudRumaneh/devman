@@ -4,6 +4,7 @@ const { getErrorMessage, getJsonBody, sendJson } = require('../lib/api');
 const { fetchWithNetworkRetry } = require('../lib/fetch-retry');
 const { validateProxyUrl } = require('../lib/proxy-security');
 const {
+  applyProxyErrorHeaders,
   applyUpstreamResponseHeaders,
   buildUpstreamRequest,
   streamUpstreamResponse,
@@ -32,7 +33,7 @@ module.exports = async function proxyStream(request, response) {
     applyUpstreamResponseHeaders(upstream, response, attempts, Date.now() - started);
     return streamUpstreamResponse(upstream, response);
   } catch (error) {
-    response.setHeader('X-Devman-Proxy', 'error');
+    applyProxyErrorHeaders(response, error);
     return sendJson(response, 502, { error: getErrorMessage(error) });
   }
 };

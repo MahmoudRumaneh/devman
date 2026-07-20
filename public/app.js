@@ -10,7 +10,7 @@
   const DEFAULT_PROJECT_NAME = 'devman-api';
   const VERBS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'];
   const SAFE_RETRY_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
-  const NETWORK_RETRY_METHODS = new Set([...SAFE_RETRY_METHODS, 'PUT', 'PATCH', 'DELETE']);
+  const NETWORK_RETRY_METHODS = new Set(VERBS);
   const RETRYABLE_PROXY_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
   const PROXY_MAX_ATTEMPTS = 3;
   const PROXY_RETRY_DELAY_MS = 250;
@@ -3646,9 +3646,13 @@
         });
         if (response.headers.get('x-devman-proxy') !== 'upstream') {
           const error = new Error(await parseProxyError(response));
-          // The proxy already owns retries for update/delete operations. Only
-          // replay a returned proxy error here for read-only requests; network
-          // failures before a response still use the bounded loop above.
+          const proxyAttempts = Number(response.headers.get('x-devman-attempts'));
+          error.attempts = Number.isInteger(proxyAttempts) && proxyAttempts > 0
+            ? proxyAttempts
+            : attempt;
+          // The proxy already owns upstream transport retries for every method.
+          // Only replay a returned proxy error here for read-only requests;
+          // browser-to-proxy failures still use the bounded loop above.
           error.retryable = SAFE_RETRY_METHODS.has(payload.method) &&
             RETRYABLE_PROXY_STATUSES.has(response.status);
           throw error;
@@ -3727,12 +3731,9 @@
         }
         const isLastAttempt = attempt === maxAttempts;
         if (isLastAttempt || error?.retryable === false) {
-          const methodNote = canRetry
-            ? ''
-            : ` ${payload.method} was not retried because repeating it could duplicate data.`;
           const separator = errorMessage(error).endsWith('.') ? '' : '.';
-          const requestError = new Error(`${errorMessage(error)}${separator}${methodNote}`.trim());
-          requestError.attempts = attempt;
+          const requestError = new Error(`${errorMessage(error)}${separator}`);
+          requestError.attempts = Number.isInteger(error?.attempts) ? error.attempts : attempt;
           throw requestError;
         }
         await wait(PROXY_RETRY_DELAY_MS * (2 ** (attempt - 1)));
