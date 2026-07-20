@@ -49,9 +49,10 @@
       </label>
     </section>
 
-    <section class="card setup-card">
+    <div id="tokenCardPlaceholder" class="token-card-placeholder" aria-hidden="true" hidden></div>
+    <section class="card setup-card tokens-card">
       <h2>Tokens</h2>
-      <p class="hint">Paste tokens for tenant roles and user roles, or import them from a JSON file using the top-level <code>tokens</code> object. Existing suites can still use <code>ADMIN_TOKEN</code>; platform APIs can use <code>PLATFORM_ADMIN_TOKEN</code>.</p>
+      <p class="hint">Paste tokens for tenant and user roles, or import them from a JSON file using the top-level <code>tokens</code> object.</p>
       <div id="tokenList" class="token-list"></div>
       <div class="btn-row compact">
         <button id="addTokenBtn" class="btn primary small" type="button">+ Add token</button>
@@ -59,7 +60,6 @@
         <button id="showTokens" class="btn ghost small" type="button">Show tokens</button>
         <button id="clearTokens" class="btn ghost small" type="button">Clear pasted tokens</button>
       </div>
-      <div id="tokenDiagnostics" class="token-diagnostics"></div>
     </section>
     </aside>
 
@@ -87,9 +87,9 @@
       <p class="hint">Paste routes, one per line: <code>METHOD /path</code> (method optional, defaults to GET).
         Or import a full <code>engine.sh</code> suite JSON (<code>suites/*.json</code>) below to get its
         staged/sequential execution, variable capture between steps, and known-bug flags for free.
-        Drag the <code>⠿</code> handle on a row to move it into a different group, or drag a group's
-        header to reorder groups. Use the arrow beside a group name to expand or collapse it, run or duplicate
-        one group from its header, or select several groups and run only that selection — every row waits for
+        Drag the <code>⠿</code> handle on a row to move it into a different group, or use the same grip on a
+        group to reorder groups. Click a group header to expand or collapse it, use the pencil to rename it,
+        run or duplicate one group from its header, or select several groups and run only that selection — every row waits for
         the previous response, and selected groups still run top to bottom.</p>
       <section class="route-composer" aria-labelledby="routeComposerTitle">
         <div class="route-composer-head">
@@ -196,20 +196,8 @@ curl 'https://api.example.com/users' \
   </main>
 
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
-  <div id="runFailureBackdrop" class="modal-backdrop run-failure-backdrop" hidden>
-    <aside id="runFailureAlert" class="run-failure-alert" role="alert" aria-live="assertive" aria-labelledby="runFailureTitle" aria-describedby="runFailureReason">
-      <div class="run-failure-icon" aria-hidden="true">!</div>
-      <div class="run-failure-content">
-        <span id="runFailureEyebrow" class="run-failure-eyebrow">Run paused</span>
-        <strong id="runFailureTitle">Endpoint failed</strong>
-        <code id="runFailureEndpoint" class="run-failure-endpoint"></code>
-        <span id="runFailureReason" class="run-failure-reason"></span>
-        <button id="runFailureViewBtn" class="run-failure-view" type="button">View response details</button>
-      </div>
-      <button id="runFailureClose" class="run-failure-close" type="button" aria-label="Dismiss failure alert">×</button>
-    </aside>
-  </div>
-  <button id="backToTopBtn" class="back-to-top" type="button" hidden>↑</button>
+  <button id="goToBottomBtn" class="back-to-top" type="button" aria-label="Go to bottom of page" title="Go to bottom" hidden>↓</button>
+  <button id="backToTopBtn" class="back-to-top" type="button" aria-label="Back to top of page" title="Back to top" hidden>↑</button>
   <div id="confirmModal" class="modal-backdrop" hidden>
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
       <div class="modal-head">

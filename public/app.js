@@ -19,7 +19,6 @@
   const SEARCH_RESULT_MOBILE_BATCH_SIZE = 20;
   const ASSERTION_REQUEST_MAX_ATTEMPTS = 3;
   const ASSERTION_EVALUATOR_MAX_ATTEMPTS = 3;
-  const FAILURE_ALERT_DURATION_MS = 9000;
   const FAILURE_HIGHLIGHT_DURATION_MS = 2600;
   const RUN_MODE = Object.freeze({ ALL: 'all', GROUPS: 'groups', SINGLE: 'single' });
   const SWAGGER_IMPORT_MODE = Object.freeze({ REPLACE: 'replace', APPEND: 'append' });
@@ -45,30 +44,39 @@
   const DEFAULT_CUSTOM_HEADER_NAME = 'X-Custom-Header';
   const GROUP_NAME_MAX_LENGTH = 80;
   const GUIDE_CLOSE_ANIMATION_MS = 180;
+  const TOKEN_CARD_DOCK_MIN_WIDTH = 1181;
+  const TOKEN_CARD_DOCK_TOP_PX = 86;
+  const MIN_TOKEN_PROFILE_COUNT = 1;
   const ICONS = {
     copy: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M15 9V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h3"></path></svg>',
     check: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"></path></svg>',
     edit: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 16-.8 4.8L8 20l10.7-10.7a2.1 2.1 0 0 0-3-3Z"></path><path d="m14.5 7.5 3 3"></path></svg>',
     expand: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M21 16v5h-5"></path></svg>',
     key: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="15" r="4"></circle><path d="m11 12 9-9M16 7l3 3M14 9l2 2"></path></svg>',
+    info: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v6M12 7h.01"></path></svg>',
     play: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 5 11 7-11 7Z"></path></svg>',
     response: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"></path><circle cx="12" cy="12" r="2.5"></circle></svg>',
     chevron: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"></path></svg>',
     workspace: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"></rect><path d="M8 12h8M12 8v8"></path></svg>',
   };
   const DEFAULT_TOKEN_PROFILES = [
-    { key: 'admin', label: 'Tenant admin', varName: 'ADMIN_TOKEN', scope: 'TenantRole.TENANT_ADMIN', locked: true },
-    { key: 'platform_admin', label: 'Platform admin', varName: 'PLATFORM_ADMIN_TOKEN', scope: 'UserRole.PLATFORM_ADMIN', locked: true },
-    { key: 'creator', label: 'Creator', varName: 'CREATOR_TOKEN', scope: 'UserRole.CREATOR', locked: true },
-    { key: 'student', label: 'Student', varName: 'STUDENT_TOKEN', scope: 'UserRole.STUDENT', locked: true },
+    { key: 'platform_admin', label: 'Platform admin', varName: 'PLATFORM_ADMIN_TOKEN', scope: 'UserRole.PLATFORM_ADMIN' },
+    { key: 'creator', label: 'Creator', varName: 'CREATOR_TOKEN', scope: 'UserRole.CREATOR' },
+    { key: 'student', label: 'Student', varName: 'STUDENT_TOKEN', scope: 'UserRole.STUDENT' },
   ];
+  const LEGACY_TENANT_ADMIN_PROFILE = Object.freeze({
+    key: 'admin',
+    label: 'Tenant admin',
+    varName: 'ADMIN_TOKEN',
+    scope: 'TenantRole.TENANT_ADMIN',
+  });
   const DEFAULT_TEMPLATE = {
     base_url: 'https://api.example.com/v1',
     tokens: Object.fromEntries(DEFAULT_TOKEN_PROFILES.map((profile) => [profile.varName, ''])),
     vars: {},
     steps: [
       {
-        name: 'register admin and capture token',
+        name: 'register creator and capture token',
         stage: 0,
         goal: 'Create the administrator account',
         method: 'POST',
@@ -81,7 +89,7 @@
           tenantType: 'INDIVIDUAL_CREATOR',
         },
         expect_status: 201,
-        capture: { ADMIN_TOKEN: '.data.access_token' },
+        capture: { CREATOR_TOKEN: '.data.access_token' },
       },
       {
         name: 'read current user and capture tenant',
@@ -89,11 +97,11 @@
         goal: 'Load the authenticated user context',
         method: 'GET',
         path: '/auth/me',
-        auth_var: 'ADMIN_TOKEN',
+        auth_var: 'CREATOR_TOKEN',
         expect_status: 200,
         capture: {
           TENANT_ID: '.data.memberships[0].tenant.id',
-          ADMIN_USER_ID: '.data.id',
+          CREATOR_USER_ID: '.data.id',
         },
       },
       {
@@ -102,7 +110,7 @@
         goal: 'Verify protected API access',
         method: 'GET',
         path: '/admin/courses/queue?tab=ALL',
-        auth_var: 'ADMIN_TOKEN',
+        auth_var: 'CREATOR_TOKEN',
         headers: { 'x-tenant-id': '${TENANT_ID}' },
         expect_status: 200,
       },
@@ -127,6 +135,8 @@
   // Static vars seeded from an imported suite's top-level "vars" object.
   let suiteStaticVars = {};
 
+  const expandedTokenInfoKeys = new Set();
+
   // Live variable store for ${VAR} substitution and captures.
   let VARS = {};
   let tokensVisible = false;
@@ -139,6 +149,10 @@
   let endpointSearchTimer = null;
   let endpointSearchFrame = null;
   let endpointSearchResultLimit = 0;
+  let bottomDockMetricsFrame = null;
+  let bottomDockResizeObserver = null;
+  let tokenCardDockFrame = null;
+  let tokenCardResizeObserver = null;
   let swaggerRefreshPhase = SWAGGER_REFRESH_PHASE.IDLE;
   let swaggerRefreshError = '';
 
@@ -248,10 +262,24 @@
     return state.laneOrder[state.laneOrder.length - 1];
   }
 
-  function focusEndpointPath(rowId) {
+  function revealAddedEndpoint(rowId, { focusPath = false } = {}) {
+    const row = state.rows.find((candidate) => candidate.id === rowId);
+    if (!row) {
+      renderRows();
+      return;
+    }
+    laneMetaFor(row.laneId).collapsed = false;
+    state.endpointSearch = '';
+    syncEndpointSearchControls();
+    renderRows();
     window.requestAnimationFrame(() => {
-      const input = document.querySelector(`[data-row-id="${rowId}"] .path-input`);
-      input?.focus();
+      const card = document.querySelector(`[data-row-id="${rowId}"]`);
+      if (!card) return;
+      const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      card.classList.add('new-endpoint-focus');
+      card.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'center', inline: 'nearest' });
+      if (focusPath) card.querySelector('.path-input')?.focus({ preventScroll: true });
+      window.setTimeout(() => card.classList.remove('new-endpoint-focus'), 1800);
     });
   }
 
@@ -259,10 +287,8 @@
     const laneId = lastLaneId();
     const row = emptyRow({ laneId });
     state.rows.push(row);
-    laneMetaFor(laneId).collapsed = false;
-    renderRows();
+    revealAddedEndpoint(row.id, { focusPath: true });
     save();
-    focusEndpointPath(row.id);
   }
 
   function addEmptyGroupToWorkspace() {
@@ -316,27 +342,39 @@
     localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
   }
 
-  function normalizeTokenProfiles(profiles) {
-    const defaults = DEFAULT_TOKEN_PROFILES.map((profile) => ({ ...profile }));
-    const seen = new Set(defaults.map((profile) => profile.key));
-    const custom = Array.isArray(profiles) ? profiles : [];
+  function isLegacyTenantAdminProfile(profile) {
+    if (!profile || typeof profile !== 'object') return false;
+    return String(profile.key || '').trim() === LEGACY_TENANT_ADMIN_PROFILE.key
+      && String(profile.label || '').trim() === LEGACY_TENANT_ADMIN_PROFILE.label
+      && normalizeVarName(profile.varName || profile.key) === LEGACY_TENANT_ADMIN_PROFILE.varName
+      && String(profile.scope || '').trim() === LEGACY_TENANT_ADMIN_PROFILE.scope;
+  }
 
-    for (const profile of custom) {
+  function normalizeTokenProfiles(profiles) {
+    const normalizedProfiles = [];
+    const seenKeys = new Set();
+    const seenVarNames = new Set();
+    const sourceProfiles = Array.isArray(profiles) ? profiles : DEFAULT_TOKEN_PROFILES;
+
+    for (const profile of sourceProfiles) {
       if (!profile || typeof profile !== 'object') continue;
       const key = String(profile.key || '').trim();
       const varName = normalizeVarName(profile.varName || key);
-      if (!key || seen.has(key) || !varName) continue;
-      seen.add(key);
-      defaults.push({
+      if (!key || seenKeys.has(key) || !varName || seenVarNames.has(varName)
+        || isLegacyTenantAdminProfile(profile)) continue;
+      seenKeys.add(key);
+      seenVarNames.add(varName);
+      normalizedProfiles.push({
         key,
         label: String(profile.label || key).trim() || key,
         varName,
         scope: String(profile.scope || 'Custom token').trim() || 'Custom token',
-        locked: Boolean(profile.locked),
       });
     }
 
-    return defaults;
+    return normalizedProfiles.length
+      ? normalizedProfiles
+      : DEFAULT_TOKEN_PROFILES.map((profile) => ({ ...profile }));
   }
 
   function normalizeVarName(value) {
@@ -443,7 +481,6 @@
         label: importedTokenLabel(varName),
         varName,
         scope: 'Imported token',
-        locked: false,
       });
     }
 
@@ -475,41 +512,59 @@
     return state.tokenProfiles.find((profile) => profile.varName === authVar)?.key;
   }
 
-  function syncTokenDiagnostics() {
+  function syncTokenCards() {
     renderTokenList();
-    renderTokenDiagnostics();
   }
 
-  function renderTokenDiagnostics() {
-    const box = el('tokenDiagnostics');
-    if (!box) return;
-    box.innerHTML = '';
+  function appendTokenInfoRow(panel, label, value) {
+    const row = document.createElement('div');
+    row.className = 'token-info-row';
+    const name = document.createElement('span');
+    name.textContent = label;
+    const detail = document.createElement('code');
+    detail.textContent = value;
+    row.append(name, detail);
+    panel.appendChild(row);
+  }
 
-    for (const profile of state.tokenProfiles) {
-      const token = state.tokens[profile.key] || '';
-      const item = document.createElement('div');
-      item.className = 'token-diagnostic';
-      const label = document.createElement('strong');
-      label.textContent = profile.label;
-      item.appendChild(label);
+  function renderTokenInfoPanel(panel, token) {
+    panel.innerHTML = '';
+    const status = document.createElement('div');
+    status.className = 'token-info-status';
+    const meta = decodeJwtPayload(token);
 
-      const meta = decodeJwtPayload(token);
-      const text = document.createElement('span');
-      if (!token.trim()) {
-        text.textContent = 'No pasted token. Captured suite tokens can still be used.';
-      } else if (!meta) {
-        text.textContent = 'Opaque token ready. It will be sent exactly as provided.';
-      } else {
-        const issuer = meta.iss ? `issuer: ${meta.iss}` : 'issuer missing';
-        const azp = meta.azp ? ` · azp: ${meta.azp}` : '';
-        const exp = typeof meta.exp === 'number'
-          ? ` · expires: ${new Date(meta.exp * 1000).toLocaleString()}`
-          : '';
-        text.textContent = `${issuer}${azp}${exp}`;
-      }
-      item.appendChild(text);
-      box.appendChild(item);
+    if (!token.trim()) {
+      status.textContent = 'No pasted token. Captured suite tokens can still be used.';
+      panel.appendChild(status);
+      return;
     }
+    if (!meta) {
+      status.classList.add('is-ready');
+      status.textContent = 'Opaque token ready. It will be sent exactly as provided.';
+      panel.appendChild(status);
+      return;
+    }
+
+    const expiryMs = typeof meta.exp === 'number' ? meta.exp * 1000 : null;
+    const isExpired = expiryMs !== null && expiryMs <= Date.now();
+    status.classList.add(isExpired ? 'is-expired' : 'is-ready');
+    status.textContent = isExpired ? 'JWT expired' : 'JWT details';
+    panel.appendChild(status);
+    appendTokenInfoRow(panel, 'Issuer', typeof meta.iss === 'string' ? meta.iss : 'Not provided');
+    appendTokenInfoRow(panel, 'Client', typeof meta.azp === 'string' ? meta.azp : 'Not provided');
+    appendTokenInfoRow(panel, 'Expires', expiryMs === null ? 'Not provided' : new Date(expiryMs).toLocaleString());
+  }
+
+  function refreshTokenCard(profile) {
+    document.querySelectorAll('.token-card[data-profile-key]').forEach((card) => {
+      if (card.dataset.profileKey !== profile.key) return;
+      const input = card.querySelector('.token-value-input');
+      if (input && input.value !== (state.tokens[profile.key] || '')) {
+        input.value = state.tokens[profile.key] || '';
+      }
+      const panel = card.querySelector('.token-info-panel');
+      if (panel) renderTokenInfoPanel(panel, state.tokens[profile.key] || '');
+    });
   }
 
   function syncTokenCardActions() {
@@ -560,58 +615,102 @@
     toast(`${profile.label} applied to all ${state.rows.length} endpoint${state.rows.length === 1 ? '' : 's'}`);
   }
 
+  async function removeTokenProfile(profile) {
+    if (state.tokenProfiles.length <= MIN_TOKEN_PROFILE_COUNT) return;
+    const confirmed = await showConfirm({
+      title: 'Remove token',
+      message: `Remove ${profile.label || profile.varName} from the token list? Endpoints using ${profile.varName} will keep it as a custom authentication variable.`,
+      okText: 'Remove',
+    });
+    if (!confirmed) return;
+
+    state.rows.forEach((row) => {
+      if (row.role !== profile.key) return;
+      row.role = row.authVar ? 'custom' : 'none';
+    });
+    state.tokenProfiles = state.tokenProfiles.filter((item) => item.key !== profile.key);
+    delete state.tokens[profile.key];
+    delete VARS[profile.varName];
+    expandedTokenInfoKeys.delete(profile.key);
+    syncTokenCards();
+    renderVarsPanel();
+    renderRows();
+    save();
+  }
+
   function renderTokenList() {
     const list = el('tokenList');
     if (!list) return;
     list.innerHTML = '';
 
-    for (const profile of state.tokenProfiles) {
+    for (const [profileIndex, profile] of state.tokenProfiles.entries()) {
       const card = document.createElement('div');
       card.className = 'token-card';
+      card.dataset.profileKey = profile.key;
 
       const meta = document.createElement('div');
       meta.className = 'token-card-meta';
 
-      if (profile.locked) {
-        const title = document.createElement('strong');
-        title.textContent = profile.label;
-        const varName = document.createElement('code');
-        varName.textContent = profile.varName;
-        meta.appendChild(title);
-        meta.appendChild(varName);
-      } else {
-        const labelInput = document.createElement('input');
-        labelInput.type = 'text';
+      const labelRow = document.createElement('div');
+      labelRow.className = 'token-card-name-row';
+      const labelInput = document.createElement('input');
+      labelInput.type = 'text';
+      labelInput.value = profile.label;
+      labelInput.placeholder = 'Token label';
+      labelInput.setAttribute('aria-label', 'Token display name');
+      labelInput.addEventListener('input', () => {
+        profile.label = labelInput.value.trim() || 'Custom token';
+        saveDebounced();
+      });
+      labelInput.addEventListener('change', () => {
         labelInput.value = profile.label;
-        labelInput.placeholder = 'Token label';
-        labelInput.addEventListener('input', () => {
-          profile.label = labelInput.value.trim() || 'Custom token';
-          renderRows();
-          saveDebounced();
-        });
+        renderRows();
+        save();
+      });
+      labelRow.appendChild(labelInput);
 
-        const varInput = document.createElement('input');
-        varInput.type = 'text';
-        varInput.value = profile.varName;
-        varInput.placeholder = 'TOKEN_VAR_NAME';
-        varInput.addEventListener('change', () => {
-          const nextVarName = normalizeVarName(varInput.value);
-          if (!nextVarName) {
-            varInput.value = profile.varName;
-            return;
-          }
-          profile.varName = nextVarName;
-          varInput.value = nextVarName;
-          renderRows();
-          seedVars(false);
-          save();
-        });
-
-        meta.appendChild(labelInput);
-        meta.appendChild(varInput);
+      if (state.tokenProfiles.length > MIN_TOKEN_PROFILE_COUNT) {
+        labelRow.classList.add('has-remove');
+        const removeBtn = document.createElement('button');
+        removeBtn.className = 'token-remove-btn';
+        removeBtn.type = 'button';
+        removeBtn.textContent = '×';
+        removeBtn.title = `Remove ${profile.label || profile.varName}`;
+        removeBtn.setAttribute('aria-label', `Remove ${profile.label || profile.varName} token`);
+        removeBtn.addEventListener('click', () => removeTokenProfile(profile));
+        labelRow.appendChild(removeBtn);
       }
+      meta.appendChild(labelRow);
+
+      const varInput = document.createElement('input');
+      varInput.type = 'text';
+      varInput.value = profile.varName;
+      varInput.placeholder = 'TOKEN_VAR_NAME';
+      varInput.setAttribute('aria-label', 'Token variable name');
+      varInput.addEventListener('change', () => {
+        const previousVarName = profile.varName;
+        const nextVarName = normalizeVarName(varInput.value);
+        const duplicateProfile = state.tokenProfiles.find((item) =>
+          item.key !== profile.key && item.varName === nextVarName);
+        if (!nextVarName || duplicateProfile) {
+          varInput.value = previousVarName;
+          if (duplicateProfile) toast(`${nextVarName} is already used by ${duplicateProfile.label}`);
+          return;
+        }
+        profile.varName = nextVarName;
+        varInput.value = nextVarName;
+        state.rows.forEach((row) => {
+          if (row.role === profile.key) row.authVar = nextVarName;
+        });
+        delete VARS[previousVarName];
+        renderRows();
+        seedVars(false);
+        save();
+      });
+      meta.appendChild(varInput);
 
       const tokenInput = document.createElement('input');
+      tokenInput.className = 'token-value-input';
       tokenInput.type = tokensVisible ? 'text' : 'password';
       tokenInput.placeholder = 'eyJhbGciOi...';
       tokenInput.autocomplete = 'off';
@@ -619,7 +718,7 @@
       tokenInput.addEventListener('input', () => {
         state.tokens[profile.key] = tokenInput.value;
         seedVars(false);
-        renderTokenDiagnostics();
+        renderTokenInfoPanel(tokenInfoPanel, tokenInput.value);
         syncTokenCardActions();
         saveDebounced();
       });
@@ -629,6 +728,28 @@
 
       const actions = document.createElement('div');
       actions.className = 'token-card-actions';
+      const tokenInfoPanel = document.createElement('div');
+      const tokenInfoId = `token-info-${profileIndex}`;
+      tokenInfoPanel.className = 'token-info-panel';
+      tokenInfoPanel.id = tokenInfoId;
+      tokenInfoPanel.hidden = !expandedTokenInfoKeys.has(profile.key);
+      renderTokenInfoPanel(tokenInfoPanel, tokenInput.value);
+
+      const infoButton = document.createElement('button');
+      infoButton.className = 'btn ghost small token-info-toggle';
+      infoButton.type = 'button';
+      infoButton.setAttribute('aria-controls', tokenInfoId);
+      infoButton.setAttribute('aria-expanded', String(!tokenInfoPanel.hidden));
+      infoButton.innerHTML = `${ICONS.info}<span>${tokenInfoPanel.hidden ? 'Token info' : 'Hide info'}</span>`;
+      infoButton.addEventListener('click', () => {
+        tokenInfoPanel.hidden = !tokenInfoPanel.hidden;
+        if (tokenInfoPanel.hidden) expandedTokenInfoKeys.delete(profile.key);
+        else expandedTokenInfoKeys.add(profile.key);
+        infoButton.setAttribute('aria-expanded', String(!tokenInfoPanel.hidden));
+        infoButton.querySelector('span').textContent = tokenInfoPanel.hidden ? 'Token info' : 'Hide info';
+      });
+      actions.appendChild(infoButton);
+
       const applyAllButton = document.createElement('button');
       applyAllButton.className = 'btn ghost small token-apply-all-btn';
       applyAllButton.type = 'button';
@@ -639,32 +760,14 @@
       applyAllButton.addEventListener('click', () => applyTokenProfileToAllEndpoints(profile));
       actions.appendChild(applyAllButton);
 
-      if (!profile.locked) {
-        const removeBtn = document.createElement('button');
-        removeBtn.className = 'lane-remove';
-        removeBtn.type = 'button';
-        removeBtn.textContent = '×';
-        removeBtn.title = 'Remove token slot';
-        removeBtn.addEventListener('click', async () => {
-          const confirmed = await showConfirm({
-            title: 'Remove token slot',
-            message: `Remove ${profile.label || profile.varName} from the token list? Rows using ${profile.varName} will keep the custom auth variable.`,
-            okText: 'Remove',
-          });
-          if (!confirmed) return;
-          state.tokenProfiles = state.tokenProfiles.filter((item) => item.key !== profile.key);
-          delete state.tokens[profile.key];
-          syncTokenDiagnostics();
-          renderRows();
-          save();
-        });
-        actions.appendChild(removeBtn);
-      }
-
       card.appendChild(actions);
+      card.appendChild(tokenInfoPanel);
 
       list.appendChild(card);
     }
+    const hasScrollableTokens = state.tokenProfiles.length > 4;
+    list.classList.toggle('is-scrollable', hasScrollableTokens);
+    list.closest('.tokens-card')?.classList.toggle('has-scrollable-tokens', hasScrollableTokens);
     syncTokenCardActions();
   }
 
@@ -689,21 +792,39 @@
       state.baseUrl = parsed.baseUrl ?? state.baseUrl;
       state.tenantId = parsed.tenantId ?? '';
       state.sendTenantHeader = parsed.sendTenantHeader ?? false;
-      state.tokens = { ...state.tokens, ...(parsed.tokens || {}) };
+      const loadedTokens = isRecord(parsed.tokens) ? parsed.tokens : {};
       state.tokenProfiles = normalizeTokenProfiles(parsed.tokenProfiles);
-      suiteStaticVars = parsed.suiteStaticVars || {};
+      state.tokens = Object.fromEntries(state.tokenProfiles.map((profile) => [
+        profile.key,
+        typeof loadedTokens[profile.key] === 'string' ? loadedTokens[profile.key] : '',
+      ]));
+      suiteStaticVars = isRecord(parsed.suiteStaticVars) ? parsed.suiteStaticVars : {};
+      const removedLegacyTenantAdmin = Array.isArray(parsed.tokenProfiles)
+        && parsed.tokenProfiles.some(isLegacyTenantAdminProfile);
+      const legacyTenantAdminToken = loadedTokens[LEGACY_TENANT_ADMIN_PROFILE.key];
+      if (removedLegacyTenantAdmin && typeof legacyTenantAdminToken === 'string'
+        && legacyTenantAdminToken.trim()
+        && !Object.hasOwn(suiteStaticVars, LEGACY_TENANT_ADMIN_PROFILE.varName)) {
+        suiteStaticVars[LEGACY_TENANT_ADMIN_PROFILE.varName] = legacyTenantAdminToken;
+      }
       state.laneOrder = Array.isArray(parsed.laneOrder) ? parsed.laneOrder : [];
       state.laneMeta = normalizeLaneMeta(parsed.laneMeta, state.laneOrder);
       state.endpointSearch = parsed.endpointSearch || '';
       state.swaggerSource = normalizeSwaggerSource(parsed.swaggerSource);
       state.rows = (parsed.rows || []).map((r) => emptyRow(r));
+      const profileKeys = new Set(state.tokenProfiles.map((profile) => profile.key));
+      state.rows.forEach((row) => {
+        if (row.role !== 'none' && row.role !== 'custom' && !profileKeys.has(row.role)) {
+          row.role = row.authVar ? 'custom' : 'none';
+        }
+      });
       if (!state.laneOrder.length && state.rows.length) {
         const id = newLaneId();
         state.laneOrder = [id];
         state.rows.forEach((r) => { r.laneId = id; });
       }
       state.laneMeta = normalizeLaneMeta(state.laneMeta, state.laneOrder);
-      if (!localStorage.getItem(STORAGE_KEY)) save();
+      if (removedLegacyTenantAdmin || !localStorage.getItem(STORAGE_KEY)) save();
     } catch (e) {
       console.warn('Failed to load saved state', e);
     }
@@ -1028,46 +1149,8 @@
     toastTimer = setTimeout(() => { t.hidden = true; }, 4000);
   }
 
-  let failureAlertTimer;
-  let failureAlertHideTimer;
   let failureHighlightTimer;
   let highlightedFailureRowId = null;
-
-  function hideRunFailureAlert() {
-    const backdrop = el('runFailureBackdrop');
-    if (!backdrop || backdrop.hidden) return;
-    clearTimeout(failureAlertTimer);
-    clearTimeout(failureAlertHideTimer);
-    backdrop.classList.remove('is-visible');
-    failureAlertHideTimer = window.setTimeout(() => { backdrop.hidden = true; }, 180);
-  }
-
-  function failedRequestReason(row) {
-    const result = row.result;
-    if (!result || result.status === 0) {
-      try {
-        const parsed = JSON.parse(result?.respBody || '');
-        if (isRecord(parsed) && typeof parsed.error === 'string' && parsed.error.trim()) {
-          return parsed.error.trim();
-        }
-      } catch (_) {
-        // Use the stable network-error message below for non-JSON responses.
-      }
-      return 'No HTTP response was received. Check the connection and endpoint availability.';
-    }
-
-    if (!statusMatches(result.status, row.expect)) {
-      return `Received HTTP ${result.status}; expected ${row.expect.trim() || 'a successful response'}.`;
-    }
-    if (result.assertionFailure) {
-      const retrySummary = result.attempts > 1 ? ` after ${result.attempts} attempts` : '';
-      return `HTTP ${result.status} was received${retrySummary}, but assertion “${result.assertionFailure}” did not pass.`;
-    }
-    if (result.assertionError) {
-      return `HTTP ${result.status} was received, but its response assertion could not be evaluated: ${result.assertionError}`;
-    }
-    return `The endpoint returned HTTP ${result.status} and did not meet its configured expectation.`;
-  }
 
   function findRenderedRow(rowId) {
     return [...document.querySelectorAll('.request-card')]
@@ -1121,39 +1204,6 @@
         }, FAILURE_HIGHLIGHT_DURATION_MS);
       });
     });
-  }
-
-  function showRunFailureAlert(row, outcome) {
-    const alert = el('runFailureAlert');
-    const backdrop = el('runFailureBackdrop');
-    if (!alert || !backdrop) return;
-
-    clearTimeout(failureAlertTimer);
-    clearTimeout(failureAlertHideTimer);
-    el('runFailureEyebrow').textContent = outcome === 'hardfail' ? 'Run paused' : 'Run continuing';
-    el('runFailureTitle').textContent = row.result?.state === 'error'
-      ? 'Could not reach endpoint'
-      : 'Endpoint check failed';
-    el('runFailureEndpoint').textContent = `${row.method} ${row.path || '/'}`;
-    el('runFailureReason').textContent = failedRequestReason(row);
-    el('runFailureViewBtn').onclick = () => {
-      hideRunFailureAlert();
-      focusFailedEndpoint(row);
-    };
-    el('runFailureClose').onclick = hideRunFailureAlert;
-    backdrop.onclick = (event) => {
-      if (event.target === backdrop) hideRunFailureAlert();
-    };
-
-    backdrop.hidden = false;
-    backdrop.classList.remove('is-visible');
-    window.requestAnimationFrame(() => backdrop.classList.add('is-visible'));
-    failureAlertTimer = window.setTimeout(hideRunFailureAlert, FAILURE_ALERT_DURATION_MS);
-  }
-
-  function revealRunFailure(row, outcome) {
-    focusFailedEndpoint(row);
-    showRunFailureAlert(row, outcome);
   }
 
   async function writeClipboard(text) {
@@ -1921,7 +1971,8 @@
       ? sourceRowIndices[sourceRowIndices.length - 1] + 1
       : state.rows.length;
     state.rows.splice(insertionIndex, 0, ...duplicateRows);
-    renderRows();
+    if (duplicateRows.length) revealAddedEndpoint(duplicateRows[0].id);
+    else renderRows();
     save();
     toast(`Duplicated ${laneDisplayName(laneId, sourceIndex)} as ${duplicateName}`);
   }
@@ -2339,14 +2390,30 @@
       count.title = `${allLaneRows.length} endpoint${allLaneRows.length === 1 ? '' : 's'}`;
       header.appendChild(count);
 
-      const hint = document.createElement('span');
-      hint.className = 'lane-hint';
-      hint.textContent = groupMatches
-        ? `group name match · ${renderedLaneRows.length === allLaneRows.length ? 'all ' : ''}${renderedLaneRows.length} of ${allLaneRows.length} endpoint${allLaneRows.length === 1 ? '' : 's'} shown`
-        : idx === 0
-          ? 'runs first · endpoints run in order'
-          : `execution position ${idx + 1} · endpoints run in order`;
-      header.appendChild(hint);
+      const completedRows = allLaneRows.filter((row) =>
+        row.result && row.result.state !== 'pending' && row.result.state !== 'skipped');
+      if (completedRows.length) {
+        count.remove();
+        const passCount = completedRows.filter((row) => row.result.state === 'pass').length;
+        const bugCount = completedRows.filter((row) => row.result.state === 'bug').length;
+        const failCount = completedRows.filter((row) =>
+          row.result.state === 'fail' || row.result.state === 'error').length;
+        const hint = document.createElement('span');
+        hint.className = 'lane-hint lane-run-summary';
+        const summaryItems = [
+          ['lane-summary-total', `${allLaneRows.length} total`],
+          ['lane-summary-pass', `✓ ${passCount}`],
+          ['lane-summary-bug', `⚠ ${bugCount}`],
+          ['lane-summary-fail', `× ${failCount}`],
+        ];
+        summaryItems.forEach(([className, label]) => {
+          const item = document.createElement('span');
+          item.className = className;
+          item.textContent = label;
+          hint.appendChild(item);
+        });
+        header.appendChild(hint);
+      }
 
       const headerActions = document.createElement('div');
       headerActions.className = 'lane-actions';
@@ -2381,9 +2448,9 @@
       addHereBtn.textContent = '+ row';
       addHereBtn.title = 'Add an empty row to this group';
       addHereBtn.addEventListener('click', () => {
-        state.rows.push(emptyRow({ laneId }));
-        meta.collapsed = false;
-        renderRows();
+        const addedRow = emptyRow({ laneId });
+        state.rows.push(addedRow);
+        revealAddedEndpoint(addedRow.id, { focusPath: true });
         save();
       });
       headerActions.appendChild(addHereBtn);
@@ -2395,15 +2462,15 @@
       removeLaneBtn.textContent = '×';
       removeLaneBtn.title = allLaneRows.length ? 'Delete group and its rows' : 'Delete group';
       removeLaneBtn.addEventListener('click', async () => {
-        if (allLaneRows.length) {
-          const groupName = laneDisplayName(laneId, idx);
-          const confirmed = await showConfirm({
-            title: `Delete ${groupName}`,
-            message: `This will remove ${allLaneRows.length} row${allLaneRows.length > 1 ? 's' : ''} from this group.`,
-            okText: 'Delete group',
-          });
-          if (!confirmed) return;
-        }
+        const groupName = laneDisplayName(laneId, idx);
+        const confirmed = await showConfirm({
+          title: `Delete ${groupName}?`,
+          message: allLaneRows.length
+            ? `This permanently removes the group and its ${allLaneRows.length} endpoint${allLaneRows.length === 1 ? '' : 's'}.`
+            : 'This permanently removes the empty group.',
+          okText: 'Delete group',
+        });
+        if (!confirmed) return;
         allLaneRows.forEach(clearSelectedFiles);
         state.laneOrder = state.laneOrder.filter((id) => id !== laneId);
         state.rows = state.rows.filter((row) => row.laneId !== laneId);
@@ -2482,6 +2549,7 @@
     updateSearchCount(isSearching ? visibleCount : state.rows.length, isSearching ? visibleGroupCount : state.laneOrder.length);
     syncWorkspaceAvailability();
     updateSummary();
+    syncBottomDockMetrics();
   }
 
   function buildAdvancedChips(row) {
@@ -3077,7 +3145,7 @@
     const tokenProfile = state.tokenProfiles.find((profile) => profile.varName === variableName);
     if (tokenProfile) {
       state.tokens[tokenProfile.key] = normalizedValue;
-      renderTokenDiagnostics();
+      refreshTokenCard(tokenProfile);
       syncTokenCardActions();
     }
     if (variableName === 'TENANT_ID') {
@@ -3250,6 +3318,7 @@
     const wrap = document.createElement('div');
     wrap.className = 'request-card';
     wrap.dataset.rowId = row.id;
+    wrap.classList.toggle('has-result-error', row.result?.state === 'fail' || row.result?.state === 'error');
     if (row.id === highlightedFailureRowId) wrap.classList.add('run-failure-focus');
     wireRowDrop(wrap, row);
 
@@ -3439,7 +3508,7 @@
     const headersAreOpen = row.activePanel === ROW_PANEL.HEADERS;
     const headersLabel = document.createElement('span');
     headersLabel.className = 'endpoint-headers-label';
-    headersLabel.textContent = headersAreOpen ? 'Hide headers' : 'Headers';
+    headersLabel.textContent = headersAreOpen ? 'Hide' : 'Headers';
     headersBtn.appendChild(headersLabel);
     if (headerCount) {
       const headersCount = document.createElement('span');
@@ -3465,7 +3534,7 @@
     const variablesAreOpen = row.activePanel === ROW_PANEL.VARIABLES;
     const variablesLabel = document.createElement('span');
     variablesLabel.className = 'endpoint-variables-label';
-    variablesLabel.textContent = variablesAreOpen ? 'Hide vars' : 'Variables';
+    variablesLabel.textContent = variablesAreOpen ? 'Hide' : 'Variables';
     variablesBtn.appendChild(variablesLabel);
     if (variables.length) {
       const variablesCount = document.createElement('span');
@@ -3492,10 +3561,19 @@
       mode: RUN_MODE.SINGLE,
     }));
     const removeBtn = document.createElement('button');
-    removeBtn.className = 'row-remove';
+    removeBtn.className = 'row-remove endpoint-remove-btn';
+    removeBtn.type = 'button';
     removeBtn.textContent = '×';
     removeBtn.title = 'Remove row';
-    removeBtn.addEventListener('click', () => {
+    removeBtn.setAttribute('aria-label', `Remove ${row.path || 'endpoint'}`);
+    removeBtn.addEventListener('click', async () => {
+      const endpointLabel = `${row.method} ${row.path || 'untitled endpoint'}`;
+      const confirmed = await showConfirm({
+        title: 'Delete endpoint?',
+        message: `This permanently removes ${endpointLabel} and its configured request data from the workspace.`,
+        okText: 'Delete endpoint',
+      });
+      if (!confirmed) return;
       clearSelectedFiles(row);
       state.rows = state.rows.filter((r) => r.id !== row.id);
       renderRows();
@@ -3505,7 +3583,6 @@
     actionsCell.appendChild(headersBtn);
     actionsCell.appendChild(variablesBtn);
     actionsCell.appendChild(runOneBtn);
-    actionsCell.appendChild(removeBtn);
 
     main.appendChild(methodCell);
     main.appendChild(pathCell);
@@ -3516,6 +3593,7 @@
 
     wrap.appendChild(dragCell);
     wrap.appendChild(main);
+    wrap.appendChild(removeBtn);
 
     const subline = document.createElement('div');
     subline.className = 'request-subline';
@@ -3788,6 +3866,7 @@
       badge.className = 'badge fail';
       badge.textContent = `✕ ${r.status}`;
     }
+    badge.title = badge.textContent;
     container.appendChild(badge);
 
     const hasInspectableResponse = r && r.state !== 'skipped' &&
@@ -3823,6 +3902,7 @@
 
     const rowEl = document.querySelector(`[data-row-id="${row.id}"]`);
     if (!rowEl) return;
+    rowEl.classList.toggle('has-result-error', row.result?.state === 'fail' || row.result?.state === 'error');
     const resultCell = rowEl.querySelector('.result-cell');
     resultCell.innerHTML = '';
     resultCell.appendChild(buildResultBadge(row));
@@ -4400,7 +4480,6 @@
     activeRunController = new AbortController();
     const isGroupRun = mode === RUN_MODE.ALL || mode === RUN_MODE.GROUPS;
     if (isGroupRun) {
-      hideRunFailureAlert();
       clearFailureHighlight();
       if (state.endpointSearch) {
         state.endpointSearch = '';
@@ -4441,7 +4520,7 @@
           updateSummary();
           if (mode === RUN_MODE.SINGLE) scrollResponsePanelIntoView(row);
           if (!wasCancelled && isGroupRun && (outcome === 'hardfail' || outcome === 'fail-continue')) {
-            revealRunFailure(row, outcome);
+            focusFailedEndpoint(row);
           }
           if (outcome === 'hardfail' || wasCancelled) stopped = true;
         }
@@ -4453,6 +4532,7 @@
       });
       runInProgress = false;
       activeRunController = null;
+      renderRows();
       syncRunControls();
       if (isGroupRun) save();
     }
@@ -4557,17 +4637,17 @@
     el('sendTenantHeader').addEventListener('change', (e) => { state.sendTenantHeader = e.target.checked; saveDebounced(); });
 
     el('addTokenBtn').addEventListener('click', () => {
-      const index = state.tokenProfiles.filter((profile) => !profile.locked).length + 1;
+      let index = 1;
+      while (state.tokenProfiles.some((profile) => profile.varName === `CUSTOM_${index}_TOKEN`)) index += 1;
       const key = `custom_${Date.now()}`;
       state.tokenProfiles.push({
         key,
         label: `Custom token ${index}`,
         varName: `CUSTOM_${index}_TOKEN`,
         scope: 'Custom token',
-        locked: false,
       });
       state.tokens[key] = '';
-      syncTokenDiagnostics();
+      syncTokenCards();
       renderRows();
       save();
     });
@@ -4593,7 +4673,7 @@
     el('baseUrl').value = state.baseUrl;
     el('tenantId').value = state.tenantId;
     el('sendTenantHeader').checked = state.sendTenantHeader;
-    syncTokenDiagnostics();
+    syncTokenCards();
   }
 
   function jsonImportEndpointCount(parsed) {
@@ -4690,7 +4770,7 @@
 
     state.laneOrder.push(...appendedLaneIds);
     state.rows.push(...appendedRows);
-    return appendedRows.length;
+    return appendedRows;
   }
 
   async function importFile(file) {
@@ -4716,9 +4796,12 @@
       const isSuite = Array.isArray(parsed.steps);
       const { rows, laneOrder, laneMeta, importedTokenCount, tokensOnly, swaggerSource } = importParsedJson(parsed);
       let importedRowCount = rows.length;
+      let appendedRowId = null;
       if (appendSnapshot && !tokensOnly) {
         restoreConfigurationAfterAppend(appendSnapshot, rows);
-        importedRowCount = appendImportedWorkspace({ rows, laneOrder, laneMeta });
+        const appendedRows = appendImportedWorkspace({ rows, laneOrder, laneMeta });
+        importedRowCount = appendedRows.length;
+        appendedRowId = appendedRows[0]?.id || null;
       } else {
         if (!tokensOnly) selectedFiles.clear();
         state.rows = rows;
@@ -4729,7 +4812,8 @@
       if (!tokensOnly) selectedLaneIds.clear();
       syncConnectionInputs();
       seedVars(true);
-      renderRows();
+      if (appendedRowId) revealAddedEndpoint(appendedRowId);
+      else renderRows();
       save();
       syncSwaggerSourceUi();
       const tokenSummary = importedTokenCount
@@ -4996,7 +5080,11 @@
 
     seedVars(true);
     save();
-    renderRows();
+    if (!isRefresh && mode === SWAGGER_IMPORT_MODE.APPEND && importedRows.length) {
+      revealAddedEndpoint(importedRows[0].id);
+    } else {
+      renderRows();
+    }
     syncSwaggerSourceUi();
 
     const previousKeys = new Set(previousSourceRows.map(swaggerEndpointKey));
@@ -5297,20 +5385,18 @@
       const laneName = quickAddLaneName(analysis, parsed);
       const laneId = newLaneId({ name: laneName, collapsed: false });
       state.laneOrder.push(laneId);
-      for (const p of parsed) state.rows.push(emptyRow({ ...p, body: formatImportedBody(p.body), laneId }));
+      const addedRows = parsed.map((route) => emptyRow({
+        ...route,
+        body: formatImportedBody(route.body),
+        laneId,
+      }));
+      state.rows.push(...addedRows);
       state.endpointSearch = '';
       syncEndpointSearchControls();
       pasteBox.value = '';
       syncRouteComposer();
-      renderRows();
+      revealAddedEndpoint(addedRows[0].id);
       save();
-      window.requestAnimationFrame(() => {
-        const laneElement = [...document.querySelectorAll('.stage-lane')]
-          .find((candidate) => candidate.dataset.laneId === laneId);
-        if (!laneElement) return;
-        const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-        laneElement.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'nearest' });
-      });
       toast(analysis.sourceType === 'curl'
         ? `Imported ${parsed.length} cURL request${parsed.length === 1 ? '' : 's'} into ${laneName}`
         : `Added ${parsed.length} endpoint${parsed.length === 1 ? '' : 's'} to ${laneName}`);
@@ -5323,14 +5409,16 @@
 
     el('exampleBtn').addEventListener('click', () => {
       const laneId = lastLaneId();
+      const primaryProfile = state.tokenProfiles[0];
+      const studentProfile = state.tokenProfiles.find((profile) => profile.key === 'student') || primaryProfile;
       const examples = [
-        { method: 'GET', path: '/auth/me', role: 'admin', authVar: 'ADMIN_TOKEN' },
-        { method: 'GET', path: '/admin/courses/queue?tab=PENDING', role: 'admin', authVar: 'ADMIN_TOKEN' },
-        { method: 'GET', path: '/admin/courses/queue', role: 'student', authVar: 'STUDENT_TOKEN', expect: '403' },
+        { method: 'GET', path: '/auth/me', role: primaryProfile.key, authVar: primaryProfile.varName },
+        { method: 'GET', path: '/admin/courses/queue?tab=PENDING', role: primaryProfile.key, authVar: primaryProfile.varName },
+        { method: 'GET', path: '/admin/courses/queue', role: studentProfile.key, authVar: studentProfile.varName, expect: '403' },
       ];
-      for (const ex of examples) state.rows.push(emptyRow({ ...ex, laneId }));
-      laneMetaFor(laneId).collapsed = false;
-      renderRows();
+      const addedRows = examples.map((example) => emptyRow({ ...example, laneId }));
+      state.rows.push(...addedRows);
+      revealAddedEndpoint(addedRows[0].id);
       save();
     });
 
@@ -5372,9 +5460,7 @@
           profile.varName,
           state.tokens[profile.key] || '',
         ])),
-        tokenProfiles: state.tokenProfiles
-          .filter((profile) => !profile.locked)
-          .map((profile) => ({ ...profile })),
+        tokenProfiles: state.tokenProfiles.map((profile) => ({ ...profile })),
         suiteStaticVars: { ...suiteStaticVars },
         laneOrder: state.laneOrder,
         laneMeta: state.laneMeta,
@@ -5434,15 +5520,114 @@
     });
   }
 
-  function bindBackToTop() {
-    const button = el('backToTopBtn');
-    if (!button) return;
+  function bindPageScrollButtons() {
+    const topButton = el('backToTopBtn');
+    const bottomButton = el('goToBottomBtn');
+    if (!topButton || !bottomButton) return;
     const sync = () => {
-      button.hidden = window.scrollY < 420;
+      const canScroll = document.documentElement.scrollHeight > window.innerHeight + 40;
+      const isNearTop = window.scrollY < 420;
+      topButton.hidden = !canScroll || isNearTop;
+      bottomButton.hidden = !canScroll || !isNearTop;
     };
-    button.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
+    const scrollBehavior = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
+    topButton.addEventListener('click', () => window.scrollTo({ top: 0, behavior: scrollBehavior() }));
+    bottomButton.addEventListener('click', () => window.scrollTo({
+      top: document.documentElement.scrollHeight,
+      behavior: scrollBehavior(),
+    }));
     window.addEventListener('scroll', sync, { passive: true });
+    window.addEventListener('resize', sync, { passive: true });
+    if (typeof ResizeObserver === 'function') new ResizeObserver(sync).observe(document.body);
     sync();
+  }
+
+  function syncBottomDockMetrics() {
+    if (bottomDockMetricsFrame !== null) window.cancelAnimationFrame(bottomDockMetricsFrame);
+    bottomDockMetricsFrame = window.requestAnimationFrame(() => {
+      bottomDockMetricsFrame = null;
+      const runBar = el('runBar');
+      const selectionBar = document.querySelector('.group-selection-bar');
+      const rootStyle = document.documentElement.style;
+      const runBarRect = runBar?.getBoundingClientRect();
+      const runBarHeight = Math.ceil(runBarRect?.height || 0);
+      const viewportHeight = document.documentElement.clientHeight;
+      const runBarTouchesViewportBottom = Boolean(
+        runBarRect && runBarRect.top < viewportHeight && runBarRect.bottom >= viewportHeight - 1,
+      );
+      const runBarDockOffset = runBarTouchesViewportBottom
+        ? Math.ceil(viewportHeight - Math.max(runBarRect.top, 0))
+        : 0;
+      const selectionBarHeight = Math.ceil(selectionBar?.getBoundingClientRect().height || 0);
+      rootStyle.setProperty('--run-bar-height', `${runBarHeight}px`);
+      rootStyle.setProperty('--run-bar-dock-offset', `${runBarDockOffset}px`);
+      rootStyle.setProperty('--group-selection-bar-height', `${selectionBarHeight}px`);
+      document.body.classList.toggle('has-group-selection', Boolean(selectionBar));
+    });
+  }
+
+  function bindBottomDockMetrics() {
+    window.addEventListener('resize', syncBottomDockMetrics, { passive: true });
+    window.addEventListener('scroll', syncBottomDockMetrics, { passive: true });
+    if (typeof ResizeObserver === 'function') {
+      bottomDockResizeObserver = new ResizeObserver(syncBottomDockMetrics);
+      const runBar = el('runBar');
+      if (runBar) bottomDockResizeObserver.observe(runBar);
+    }
+    if (document.fonts?.ready) document.fonts.ready.then(syncBottomDockMetrics).catch(() => {});
+    syncBottomDockMetrics();
+  }
+
+  function syncTokenCardDock() {
+    if (tokenCardDockFrame !== null) window.cancelAnimationFrame(tokenCardDockFrame);
+    tokenCardDockFrame = window.requestAnimationFrame(() => {
+      tokenCardDockFrame = null;
+      const card = document.querySelector('.tokens-card');
+      const rail = document.querySelector('.setup-rail');
+      const placeholder = el('tokenCardPlaceholder');
+      if (!card || !rail || !placeholder) return;
+
+      const canDock = window.innerWidth >= TOKEN_CARD_DOCK_MIN_WIDTH;
+      if (!canDock) {
+        card.classList.remove('is-docked');
+        card.style.removeProperty('--token-card-dock-left');
+        card.style.removeProperty('--token-card-dock-width');
+        placeholder.hidden = true;
+        placeholder.style.removeProperty('height');
+        return;
+      }
+
+      const reference = card.classList.contains('is-docked') ? placeholder : card;
+      const shouldDock = reference.getBoundingClientRect().top <= TOKEN_CARD_DOCK_TOP_PX;
+      if (!shouldDock) {
+        card.classList.remove('is-docked');
+        card.style.removeProperty('--token-card-dock-left');
+        card.style.removeProperty('--token-card-dock-width');
+        placeholder.hidden = true;
+        placeholder.style.removeProperty('height');
+        return;
+      }
+
+      const railRect = rail.getBoundingClientRect();
+      placeholder.hidden = false;
+      placeholder.style.height = `${Math.ceil(card.getBoundingClientRect().height)}px`;
+      card.style.setProperty('--token-card-dock-left', `${Math.round(railRect.left)}px`);
+      card.style.setProperty('--token-card-dock-width', `${Math.round(railRect.width)}px`);
+      card.classList.add('is-docked');
+    });
+  }
+
+  function bindTokenCardDock() {
+    window.addEventListener('scroll', syncTokenCardDock, { passive: true });
+    window.addEventListener('resize', syncTokenCardDock, { passive: true });
+    if (typeof ResizeObserver === 'function') {
+      tokenCardResizeObserver = new ResizeObserver(syncTokenCardDock);
+      const card = document.querySelector('.tokens-card');
+      const rail = document.querySelector('.setup-rail');
+      if (card) tokenCardResizeObserver.observe(card);
+      if (rail) tokenCardResizeObserver.observe(rail);
+    }
+    syncTokenCardDock();
   }
 
   function init() {
@@ -5463,11 +5648,14 @@
     bindSwaggerImport();
     bindRunBar();
     bindVarsPanel();
-    bindBackToTop();
+    bindPageScrollButtons();
+    bindBottomDockMetrics();
+    bindTokenCardDock();
     bindGuide();
     if (!hasSavedWorkspace && !state.rows.length && !state.laneOrder.length) {
       const laneId = lastLaneId();
-      state.rows.push(emptyRow({ method: 'GET', path: '/auth/me', role: 'admin', authVar: 'ADMIN_TOKEN', laneId }));
+      const profile = state.tokenProfiles[0];
+      state.rows.push(emptyRow({ method: 'GET', path: '/auth/me', role: profile.key, authVar: profile.varName, laneId }));
     }
     seedVars(true);
     renderRows();
