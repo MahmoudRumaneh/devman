@@ -89,6 +89,7 @@
           tenantType: 'INDIVIDUAL_CREATOR',
         },
         expect_status: 201,
+        continue_on_fail: true,
         capture: { CREATOR_TOKEN: '.data.access_token' },
       },
       {
@@ -99,6 +100,7 @@
         path: '/auth/me',
         auth_var: 'CREATOR_TOKEN',
         expect_status: 200,
+        continue_on_fail: true,
         capture: {
           TENANT_ID: '.data.memberships[0].tenant.id',
           CREATOR_USER_ID: '.data.id',
@@ -113,6 +115,7 @@
         auth_var: 'CREATOR_TOKEN',
         headers: { 'x-tenant-id': '${TENANT_ID}' },
         expect_status: 200,
+        continue_on_fail: true,
       },
     ],
   };
