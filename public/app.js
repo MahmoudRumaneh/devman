@@ -14,6 +14,9 @@
   const RETRYABLE_PROXY_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
   const PROXY_MAX_ATTEMPTS = 3;
   const PROXY_RETRY_DELAY_MS = 250;
+  const SEARCH_RENDER_DELAY_MS = 90;
+  const SEARCH_RESULT_BATCH_SIZE = 40;
+  const SEARCH_RESULT_MOBILE_BATCH_SIZE = 20;
   const ASSERTION_REQUEST_MAX_ATTEMPTS = 3;
   const ASSERTION_EVALUATOR_MAX_ATTEMPTS = 3;
   const FAILURE_ALERT_DURATION_MS = 9000;
@@ -24,7 +27,13 @@
   const SWAGGER_REFRESH_PHASE = Object.freeze({ IDLE: 'idle', LOADING: 'loading', ERROR: 'error' });
   const NO_AUTH_PROFILE = 'none';
   const JSON_IMPORT_ACTION = Object.freeze({ REPLACE: 'replace', APPEND: 'append' });
-  const ROW_PANEL = Object.freeze({ NONE: '', BODY: 'body', HEADERS: 'headers', RESPONSE: 'response' });
+  const ROW_PANEL = Object.freeze({
+    NONE: '',
+    BODY: 'body',
+    HEADERS: 'headers',
+    VARIABLES: 'variables',
+    RESPONSE: 'response',
+  });
   const ROW_PANEL_VALUES = new Set(Object.values(ROW_PANEL));
   const BODY_MODE = Object.freeze({ RAW: 'raw', MULTIPART: 'multipart', BINARY: 'binary' });
   const BODY_MODE_VALUES = new Set(Object.values(BODY_MODE));
@@ -127,6 +136,9 @@
   const selectedLaneIds = new Set();
   const searchCollapsedLaneIds = new Set();
   let previousEndpointSearch = '';
+  let endpointSearchTimer = null;
+  let endpointSearchFrame = null;
+  let endpointSearchResultLimit = 0;
   let swaggerRefreshPhase = SWAGGER_REFRESH_PHASE.IDLE;
   let swaggerRefreshError = '';
 
@@ -2134,6 +2146,9 @@
   }
 
   function renderRows() {
+    if (endpointSearchTimer !== null || endpointSearchFrame !== null) {
+      cancelEndpointSearchRender();
+    }
     closeSharedSelect();
     if (!state.laneOrder.length && state.endpointSearch) {
       state.endpointSearch = '';
@@ -2146,15 +2161,22 @@
     });
     const list = el('rowsList');
     list.innerHTML = '';
+    const renderedContent = document.createDocumentFragment();
     const normalizedSearch = state.endpointSearch.trim();
     const isSearching = Boolean(normalizedSearch);
     if (!isSearching || !previousEndpointSearch) searchCollapsedLaneIds.clear();
     previousEndpointSearch = normalizedSearch;
     let visibleCount = 0;
-    if (selectedLaneIds.size) list.appendChild(buildGroupSelectionBar());
+    if (selectedLaneIds.size) renderedContent.appendChild(buildGroupSelectionBar());
+
+    const rowsByLane = new Map(state.laneOrder.map((laneId) => [laneId, []]));
+    state.rows.forEach((row) => {
+      if (!rowsByLane.has(row.laneId)) rowsByLane.set(row.laneId, []);
+      rowsByLane.get(row.laneId).push(row);
+    });
 
     const laneRenderEntries = state.laneOrder.map((laneId, idx) => {
-      const allLaneRows = state.rows.filter((r) => r.laneId === laneId);
+      const allLaneRows = rowsByLane.get(laneId) || [];
       const groupMatches = isSearching && laneMatchesSearch(laneId, idx);
       const laneRows = groupMatches ? allLaneRows : allLaneRows.filter((r) => rowMatchesSearch(r));
       return { laneId, idx, allLaneRows, laneRows, groupMatches };
@@ -2163,11 +2185,21 @@
       laneRenderEntries.sort((left, right) =>
         Number(right.groupMatches) - Number(left.groupMatches) || left.idx - right.idx);
     }
-    let visibleGroupCount = 0;
+    const visibleGroupCount = laneRenderEntries.length;
+    visibleCount = laneRenderEntries.reduce((total, entry) => total + entry.laneRows.length, 0);
+    const resultLimit = isSearching
+      ? endpointSearchResultLimit || endpointSearchBatchSize()
+      : Number.POSITIVE_INFINITY;
+    let remainingResultSlots = resultLimit;
+    let renderedResultCount = 0;
 
     laneRenderEntries.forEach(({ laneId, idx, allLaneRows, laneRows, groupMatches }) => {
-      visibleCount += laneRows.length;
-      visibleGroupCount += 1;
+      const renderedLaneRows = isSearching
+        ? laneRows.slice(0, Math.max(remainingResultSlots, 0))
+        : laneRows;
+      if (isSearching) remainingResultSlots -= renderedLaneRows.length;
+      renderedResultCount += renderedLaneRows.length;
+      if (isSearching && laneRows.length && !renderedLaneRows.length) return;
       const meta = laneMetaFor(laneId);
       const isCollapsed = isSearching
         ? searchCollapsedLaneIds.has(laneId)
@@ -2182,27 +2214,58 @@
 
       const header = document.createElement('div');
       header.className = 'stage-lane-header';
-      header.draggable = !isSearching;
-      header.addEventListener('dragstart', (event) => {
-        if (event.target.closest('button, input')) {
-          event.preventDefault();
-          return;
+      header.draggable = false;
+
+      const toggleLane = () => {
+        if (runInProgress && activeRunLaneId === laneId) return;
+        if (isSearching) {
+          if (searchCollapsedLaneIds.has(laneId)) searchCollapsedLaneIds.delete(laneId);
+          else searchCollapsedLaneIds.add(laneId);
+        } else {
+          meta.collapsed = !meta.collapsed;
         }
-        draggingLaneId = laneId;
-        draggingRowId = null;
-        header.classList.add('is-dragging');
-        document.body.classList.add('is-lane-dragging');
-      });
-      header.addEventListener('dragend', () => {
-        draggingLaneId = null;
-        clearDragVisuals();
+        renderRows();
+        if (!isSearching) save();
+      };
+      header.addEventListener('click', (event) => {
+        if (event.target.closest('button, input, select, textarea, a, .lane-drag-handle')) return;
+        toggleLane();
       });
 
       const handle = document.createElement('span');
       handle.className = 'lane-drag-handle';
       handle.textContent = '⠿';
-      handle.classList.toggle('is-disabled', isSearching);
-      handle.title = isSearching ? 'Clear search to reorder groups' : 'Drag to reorder this group';
+      handle.draggable = !isSearching && !runInProgress;
+      handle.classList.toggle('is-disabled', isSearching || runInProgress);
+      handle.title = isSearching
+        ? 'Clear search to reorder groups'
+        : runInProgress ? 'Wait for the current run to finish' : 'Drag to reorder this group';
+      handle.setAttribute('role', 'img');
+      handle.setAttribute('aria-label', handle.title);
+      handle.addEventListener('click', (event) => event.stopPropagation());
+      handle.addEventListener('dragstart', (event) => {
+        if (isSearching || runInProgress) {
+          event.preventDefault();
+          return;
+        }
+        event.stopPropagation();
+        draggingLaneId = laneId;
+        draggingRowId = null;
+        event.dataTransfer.effectAllowed = 'move';
+        header.classList.add('is-dragging');
+        document.body.classList.add('is-lane-dragging');
+        if (typeof event.dataTransfer.setDragImage === 'function') {
+          const headerRect = header.getBoundingClientRect();
+          const offsetX = Math.min(Math.max(event.clientX - headerRect.left, 0), headerRect.width);
+          const offsetY = Math.min(Math.max(event.clientY - headerRect.top, 0), headerRect.height);
+          event.dataTransfer.setDragImage(header, offsetX, offsetY);
+        }
+      });
+      handle.addEventListener('dragend', (event) => {
+        event.stopPropagation();
+        draggingLaneId = null;
+        clearDragVisuals();
+      });
       header.appendChild(handle);
 
       const selectButton = document.createElement('button');
@@ -2236,26 +2299,21 @@
       collapseButton.setAttribute('aria-controls', `lane-body-${laneId}`);
       collapseButton.addEventListener('click', (event) => {
         event.stopPropagation();
-        if (isSearching) {
-          if (searchCollapsedLaneIds.has(laneId)) searchCollapsedLaneIds.delete(laneId);
-          else searchCollapsedLaneIds.add(laneId);
-        } else {
-          meta.collapsed = !meta.collapsed;
-        }
-        renderRows();
-        if (!isSearching) save();
+        toggleLane();
       });
       header.appendChild(collapseButton);
 
       const title = document.createElement('div');
       title.className = 'lane-title lane-title-editor';
       const titleButton = document.createElement('button');
-      titleButton.className = 'lane-title-value lane-mutation-btn';
+      titleButton.className = 'lane-title-value';
       titleButton.type = 'button';
       titleButton.disabled = runInProgress;
       titleButton.textContent = laneDisplayName(laneId, idx);
-      titleButton.title = `Rename ${laneDisplayName(laneId, idx)}`;
-      titleButton.setAttribute('aria-label', `Rename ${laneDisplayName(laneId, idx)}`);
+      titleButton.title = `${isCollapsed ? 'Expand' : 'Collapse'} ${laneDisplayName(laneId, idx)}`;
+      titleButton.setAttribute('aria-label', titleButton.title);
+      titleButton.setAttribute('aria-expanded', String(!isCollapsed));
+      titleButton.setAttribute('aria-controls', `lane-body-${laneId}`);
       const editNameButton = document.createElement('button');
       editNameButton.className = 'lane-name-edit-btn lane-mutation-btn';
       editNameButton.type = 'button';
@@ -2263,12 +2321,14 @@
       editNameButton.innerHTML = ICONS.edit;
       editNameButton.title = `Rename ${laneDisplayName(laneId, idx)}`;
       editNameButton.setAttribute('aria-label', `Rename ${laneDisplayName(laneId, idx)}`);
-      const editGroupName = (event) => {
+      titleButton.addEventListener('click', (event) => {
+        event.stopPropagation();
+        toggleLane();
+      });
+      editNameButton.addEventListener('click', (event) => {
         event.stopPropagation();
         beginLaneNameEdit({ laneId, laneIndex: idx, container: title });
-      };
-      titleButton.addEventListener('click', editGroupName);
-      editNameButton.addEventListener('click', editGroupName);
+      });
       title.appendChild(titleButton);
       title.appendChild(editNameButton);
       header.appendChild(title);
@@ -2282,7 +2342,7 @@
       const hint = document.createElement('span');
       hint.className = 'lane-hint';
       hint.textContent = groupMatches
-        ? `group name match · all ${allLaneRows.length} endpoint${allLaneRows.length === 1 ? '' : 's'} shown`
+        ? `group name match · ${renderedLaneRows.length === allLaneRows.length ? 'all ' : ''}${renderedLaneRows.length} of ${allLaneRows.length} endpoint${allLaneRows.length === 1 ? '' : 's'} shown`
         : idx === 0
           ? 'runs first · endpoints run in order'
           : `execution position ${idx + 1} · endpoints run in order`;
@@ -2369,29 +2429,54 @@
       body.hidden = isCollapsed;
       if (isCollapsed) {
         // Avoid constructing hundreds of hidden controls for large Swagger imports.
-      } else if (!laneRows.length) {
+      } else if (!renderedLaneRows.length) {
         const emptyHint = document.createElement('div');
         emptyHint.className = 'lane-empty-hint';
         emptyHint.textContent = groupMatches ? 'This matching group has no endpoints yet' : 'Drag a row here';
         body.appendChild(emptyHint);
       } else {
-        for (const row of laneRows) body.appendChild(buildRowEl(row));
+        for (const row of renderedLaneRows) body.appendChild(buildRowEl(row));
       }
       laneEl.appendChild(body);
 
       wireLaneDrop(laneEl, laneId);
-      list.appendChild(laneEl);
+      renderedContent.appendChild(laneEl);
     });
 
     if (!isSearching && state.laneOrder.length === 0) {
-      list.appendChild(buildWorkspaceEmptyState());
+      renderedContent.appendChild(buildWorkspaceEmptyState());
     } else if (isSearching && visibleGroupCount === 0) {
       const empty = document.createElement('div');
       empty.className = 'search-empty';
       empty.innerHTML = '<strong>No groups or endpoints found</strong><span>Try a group name, method, path, header, note, status, or body value.</span>';
-      list.appendChild(empty);
+      renderedContent.appendChild(empty);
     }
 
+    if (isSearching && renderedResultCount < visibleCount) {
+      const remainingCount = visibleCount - renderedResultCount;
+      const nextCount = Math.min(endpointSearchBatchSize(), remainingCount);
+      const limitNotice = document.createElement('div');
+      limitNotice.className = 'search-results-limit';
+      limitNotice.setAttribute('role', 'status');
+      const limitCopy = document.createElement('div');
+      const limitTitle = document.createElement('strong');
+      limitTitle.textContent = `Showing ${renderedResultCount} of ${visibleCount} matching endpoints`;
+      const limitText = document.createElement('span');
+      limitText.textContent = 'Results are loaded in small batches to keep search fast and responsive.';
+      limitCopy.append(limitTitle, limitText);
+      const showMore = document.createElement('button');
+      showMore.className = 'btn ghost small';
+      showMore.type = 'button';
+      showMore.textContent = `Show next ${nextCount}`;
+      showMore.addEventListener('click', () => {
+        endpointSearchResultLimit = resultLimit + endpointSearchBatchSize();
+        scheduleEndpointSearchRender(0);
+      });
+      limitNotice.append(limitCopy, showMore);
+      renderedContent.appendChild(limitNotice);
+    }
+
+    list.appendChild(renderedContent);
     list.classList.remove('single-lane');
 
     updateSearchCount(isSearching ? visibleCount : state.rows.length, isSearching ? visibleGroupCount : state.laneOrder.length);
@@ -2470,6 +2555,46 @@
     count.textContent = query
       ? `${visibleCount} endpoint${visibleCount === 1 ? '' : 's'} · ${visibleGroupCount} group${visibleGroupCount === 1 ? '' : 's'}`
       : `${total} endpoint${total === 1 ? '' : 's'}`;
+  }
+
+  function setEndpointSearchBusy(isBusy) {
+    const input = el('endpointSearch');
+    const wrapper = input?.closest('.endpoint-search-input-wrap');
+    if (input) input.setAttribute('aria-busy', String(isBusy));
+    if (wrapper) wrapper.classList.toggle('is-searching', isBusy);
+  }
+
+  function endpointSearchBatchSize() {
+    return window.matchMedia('(max-width: 640px)').matches
+      ? SEARCH_RESULT_MOBILE_BATCH_SIZE
+      : SEARCH_RESULT_BATCH_SIZE;
+  }
+
+  function cancelEndpointSearchRender() {
+    if (endpointSearchTimer !== null) window.clearTimeout(endpointSearchTimer);
+    if (endpointSearchFrame !== null) window.cancelAnimationFrame(endpointSearchFrame);
+    endpointSearchTimer = null;
+    endpointSearchFrame = null;
+    setEndpointSearchBusy(false);
+  }
+
+  function scheduleEndpointSearchRender(delayMs = SEARCH_RENDER_DELAY_MS) {
+    if (endpointSearchTimer !== null) window.clearTimeout(endpointSearchTimer);
+    if (endpointSearchFrame !== null) window.cancelAnimationFrame(endpointSearchFrame);
+    endpointSearchFrame = null;
+    setEndpointSearchBusy(true);
+    endpointSearchTimer = window.setTimeout(() => {
+      endpointSearchTimer = null;
+      endpointSearchFrame = window.requestAnimationFrame(() => {
+        endpointSearchFrame = null;
+        try {
+          renderRows();
+          saveDebounced();
+        } finally {
+          setEndpointSearchBusy(false);
+        }
+      });
+    }, delayMs);
   }
 
   function syncEndpointSearchControls() {
@@ -2880,6 +3005,247 @@
     return panel;
   }
 
+  function endpointVariables(row) {
+    return window.DevmanVariableUtils?.collectEndpointVariables(row) || [];
+  }
+
+  function workspaceRowsInExecutionOrder() {
+    return state.laneOrder.flatMap((laneId) => state.rows.filter((row) => row.laneId === laneId));
+  }
+
+  function variableProducer(row, variableName) {
+    const orderedRows = workspaceRowsInExecutionOrder();
+    const currentIndex = orderedRows.findIndex((candidate) => candidate.id === row.id);
+    const producers = orderedRows.filter((candidate) =>
+      isRecord(candidate.capture) && Object.hasOwn(candidate.capture, variableName));
+    if (!producers.length) return null;
+    const previous = producers.filter((candidate) => orderedRows.indexOf(candidate) < currentIndex).at(-1);
+    return previous || producers.find((candidate) => candidate.id === row.id) || producers[0];
+  }
+
+  function variableSourceLabel(row, variable) {
+    const tokenProfile = state.tokenProfiles.find((profile) => profile.varName === variable.name);
+    if (tokenProfile) return `${tokenProfile.label} token`;
+    if (variable.name === 'TENANT_ID') return 'Connection tenant ID';
+    const producer = variableProducer(row, variable.name);
+    if (producer) {
+      if (producer.id === row.id) return 'Captured by this endpoint';
+      const producerIndex = workspaceRowsInExecutionOrder().findIndex((candidate) => candidate.id === producer.id);
+      const currentIndex = workspaceRowsInExecutionOrder().findIndex((candidate) => candidate.id === row.id);
+      return producerIndex < currentIndex
+        ? `Captured earlier · ${producer.method} ${producer.path || '/'}`
+        : `Captured later · ${producer.method} ${producer.path || '/'}`;
+    }
+    if (Object.hasOwn(suiteStaticVars, variable.name)) return 'Imported suite variable';
+    if (['RUN_ID', 'TODAY_ISO', 'PLUS_1D_ISO', 'PLUS_2D_ISO', 'PLUS_7D_ISO'].includes(variable.name)) {
+      return 'Generated when a run starts';
+    }
+    if (Object.hasOwn(VARS, variable.name)) return 'Current workspace value';
+    return 'Value required before running';
+  }
+
+  function variableCurrentValue(variableName) {
+    const value = VARS[variableName] ?? suiteStaticVars[variableName] ?? '';
+    return typeof value === 'string' ? value : String(value);
+  }
+
+  function refreshEndpointVariableEditors(variableName) {
+    const currentValue = variableCurrentValue(variableName);
+    document.querySelectorAll('.endpoint-variable-value input[data-variable-name]').forEach((input) => {
+      if (input.dataset.variableName !== variableName) return;
+      if (input.value !== currentValue) input.value = currentValue;
+      const item = input.closest('.endpoint-variable-item');
+      item?.classList.toggle('is-missing', !currentValue);
+      const badge = item?.querySelector('.endpoint-variable-state');
+      if (badge) badge.textContent = currentValue ? 'Ready' : 'Missing';
+      const clear = item?.querySelector('.endpoint-variable-clear');
+      if (clear) clear.disabled = !currentValue;
+    });
+    document.querySelectorAll('.endpoint-variables-panel[data-row-id]').forEach((openPanel) => {
+      const preview = openPanel.querySelector('.endpoint-variable-preview code');
+      if (!preview) return;
+      const previewRow = state.rows.find((candidate) => candidate.id === openPanel.dataset.rowId);
+      if (previewRow) preview.textContent = joinUrl(state.baseUrl, subst(previewRow.path.trim()));
+    });
+  }
+
+  function setWorkspaceVariableValue(variableName, value) {
+    const normalizedValue = String(value ?? '');
+    suiteStaticVars[variableName] = normalizedValue;
+    VARS[variableName] = normalizedValue;
+
+    const tokenProfile = state.tokenProfiles.find((profile) => profile.varName === variableName);
+    if (tokenProfile) {
+      state.tokens[tokenProfile.key] = normalizedValue;
+      renderTokenDiagnostics();
+      syncTokenCardActions();
+    }
+    if (variableName === 'TENANT_ID') {
+      state.tenantId = normalizedValue;
+      const tenantInput = el('tenantId');
+      if (tenantInput) tenantInput.value = normalizedValue;
+    }
+
+    refreshEndpointVariableEditors(variableName);
+    renderVarsPanel();
+    saveDebounced();
+  }
+
+  function buildVariablesPanel(row) {
+    const variables = endpointVariables(row);
+    const panel = document.createElement('section');
+    panel.className = 'request-panel endpoint-variables-panel';
+    panel.id = `endpoint-variables-panel-${row.id}`;
+    panel.dataset.rowId = row.id;
+
+    const head = document.createElement('div');
+    head.className = 'panel-head endpoint-variables-head';
+    const heading = document.createElement('div');
+    heading.className = 'endpoint-variables-title';
+    const title = document.createElement('strong');
+    title.textContent = 'Endpoint variables';
+    const summary = document.createElement('span');
+    summary.textContent = variables.length
+      ? `${variables.length} shared value${variables.length === 1 ? '' : 's'} · edits apply across the workspace`
+      : 'No variable references detected';
+    heading.append(title, summary);
+    head.appendChild(heading);
+    panel.appendChild(head);
+
+    if (!variables.length) {
+      const empty = document.createElement('div');
+      empty.className = 'endpoint-variables-empty';
+      const emptyTitle = document.createElement('strong');
+      emptyTitle.textContent = 'This endpoint is self-contained';
+      const emptyText = document.createElement('span');
+      emptyText.textContent = 'Add ${VARIABLE_NAME} in its path, body, headers, form data, or assertions to manage it here.';
+      empty.append(emptyTitle, emptyText);
+      panel.appendChild(empty);
+      return panel;
+    }
+
+    const intro = document.createElement('div');
+    intro.className = 'endpoint-variables-intro';
+    const introText = document.createElement('p');
+    introText.textContent = 'Set a fallback before running. Values captured by earlier endpoints automatically replace the fallback for the remaining workflow.';
+    intro.appendChild(introText);
+
+    const hasPathVariable = variables.some((variable) => variable.locations.includes('Path'));
+    let resolvedPath;
+    if (hasPathVariable) {
+      const preview = document.createElement('div');
+      preview.className = 'endpoint-variable-preview';
+      const previewLabel = document.createElement('span');
+      previewLabel.textContent = 'Resolved endpoint';
+      resolvedPath = document.createElement('code');
+      resolvedPath.textContent = joinUrl(state.baseUrl, subst(row.path.trim()));
+      preview.append(previewLabel, resolvedPath);
+      intro.appendChild(preview);
+    }
+    panel.appendChild(intro);
+
+    const list = document.createElement('div');
+    list.className = 'endpoint-variable-list';
+    variables.forEach((variable) => {
+      const item = document.createElement('div');
+      item.className = 'endpoint-variable-item';
+      const initialValue = variableCurrentValue(variable.name);
+      item.classList.toggle('is-missing', !initialValue);
+
+      const meta = document.createElement('div');
+      meta.className = 'endpoint-variable-meta';
+      const nameRow = document.createElement('div');
+      nameRow.className = 'endpoint-variable-name-row';
+      const name = document.createElement('code');
+      name.textContent = `\${${variable.name}}`;
+      const stateBadge = document.createElement('span');
+      stateBadge.className = 'endpoint-variable-state';
+      stateBadge.textContent = initialValue ? 'Ready' : 'Missing';
+      nameRow.append(name, stateBadge);
+
+      const source = document.createElement('span');
+      source.className = 'endpoint-variable-source';
+      source.textContent = variableSourceLabel(row, variable);
+      source.title = source.textContent;
+      meta.append(nameRow, source);
+
+      const tags = document.createElement('div');
+      tags.className = 'endpoint-variable-tags';
+      variable.locations.forEach((location) => {
+        const tag = document.createElement('span');
+        tag.textContent = location;
+        tags.appendChild(tag);
+      });
+      if (variable.captured) {
+        const captured = document.createElement('span');
+        captured.className = 'is-capture';
+        captured.textContent = 'Captured here';
+        if (variable.captureFilter) captured.title = variable.captureFilter;
+        tags.appendChild(captured);
+      }
+      meta.appendChild(tags);
+
+      const valueWrap = document.createElement('div');
+      valueWrap.className = 'endpoint-variable-value';
+      const input = document.createElement('input');
+      const isSensitive = /TOKEN$/i.test(variable.name);
+      input.type = isSensitive ? 'password' : 'text';
+      input.value = initialValue;
+      input.placeholder = variable.captured ? 'Optional fallback before capture' : 'Enter variable value';
+      input.autocomplete = 'off';
+      input.spellcheck = false;
+      input.dir = 'auto';
+      input.dataset.variableName = variable.name;
+      input.setAttribute('aria-label', `Value for ${variable.name}`);
+      input.addEventListener('input', () => {
+        setWorkspaceVariableValue(variable.name, input.value);
+        const hasValue = Boolean(input.value);
+        item.classList.toggle('is-missing', !hasValue);
+        stateBadge.textContent = hasValue ? 'Ready' : 'Missing';
+        if (resolvedPath) resolvedPath.textContent = joinUrl(state.baseUrl, subst(row.path.trim()));
+      });
+      valueWrap.appendChild(input);
+
+      if (isSensitive) {
+        const reveal = document.createElement('button');
+        reveal.className = 'endpoint-variable-control';
+        reveal.type = 'button';
+        reveal.textContent = 'Show';
+        reveal.setAttribute('aria-label', `Show ${variable.name}`);
+        reveal.addEventListener('click', () => {
+          const shouldShow = input.type === 'password';
+          input.type = shouldShow ? 'text' : 'password';
+          reveal.textContent = shouldShow ? 'Hide' : 'Show';
+          reveal.setAttribute('aria-label', `${shouldShow ? 'Hide' : 'Show'} ${variable.name}`);
+        });
+        valueWrap.appendChild(reveal);
+      }
+
+      const clear = document.createElement('button');
+      clear.className = 'endpoint-variable-control endpoint-variable-clear';
+      clear.type = 'button';
+      clear.textContent = 'Clear';
+      clear.disabled = !initialValue;
+      clear.setAttribute('aria-label', `Clear ${variable.name}`);
+      clear.addEventListener('click', () => {
+        input.value = '';
+        setWorkspaceVariableValue(variable.name, '');
+        item.classList.add('is-missing');
+        stateBadge.textContent = 'Missing';
+        clear.disabled = true;
+        if (resolvedPath) resolvedPath.textContent = joinUrl(state.baseUrl, subst(row.path.trim()));
+        input.focus();
+      });
+      input.addEventListener('input', () => { clear.disabled = !input.value; });
+      valueWrap.appendChild(clear);
+
+      item.append(meta, valueWrap);
+      list.appendChild(item);
+    });
+    panel.appendChild(list);
+    return panel;
+  }
+
   function buildRowEl(row) {
     const wrap = document.createElement('div');
     wrap.className = 'request-card';
@@ -3093,6 +3459,29 @@
       }
       focusHeadersEditor(row);
     });
+    const variables = endpointVariables(row);
+    const variablesBtn = document.createElement('button');
+    variablesBtn.className = 'btn ghost small row-action endpoint-variables-btn';
+    const variablesAreOpen = row.activePanel === ROW_PANEL.VARIABLES;
+    const variablesLabel = document.createElement('span');
+    variablesLabel.className = 'endpoint-variables-label';
+    variablesLabel.textContent = variablesAreOpen ? 'Hide vars' : 'Variables';
+    variablesBtn.appendChild(variablesLabel);
+    if (variables.length) {
+      const variablesCount = document.createElement('span');
+      variablesCount.className = 'endpoint-variables-count';
+      variablesCount.textContent = String(variables.length);
+      variablesCount.setAttribute('aria-label', `${variables.length} endpoint variable${variables.length === 1 ? '' : 's'}`);
+      variablesBtn.appendChild(variablesCount);
+    }
+    variablesBtn.title = variablesAreOpen ? 'Hide endpoint variables' : 'View and manage endpoint variables';
+    variablesBtn.setAttribute('aria-expanded', String(variablesAreOpen));
+    variablesBtn.setAttribute('aria-controls', `endpoint-variables-panel-${row.id}`);
+    variablesBtn.addEventListener('click', () => {
+      row.activePanel = variablesAreOpen ? ROW_PANEL.NONE : ROW_PANEL.VARIABLES;
+      renderRows();
+      save();
+    });
     const runOneBtn = document.createElement('button');
     runOneBtn.className = 'btn primary small row-action run-endpoint-btn';
     runOneBtn.textContent = 'Run';
@@ -3114,6 +3503,7 @@
     });
     actionsCell.appendChild(bodyBtn);
     actionsCell.appendChild(headersBtn);
+    actionsCell.appendChild(variablesBtn);
     actionsCell.appendChild(runOneBtn);
     actionsCell.appendChild(removeBtn);
 
@@ -3144,6 +3534,8 @@
       extra.className = 'request-extra';
 
       if (row.activePanel === ROW_PANEL.HEADERS) extra.appendChild(buildHeadersPanel(row));
+
+      if (row.activePanel === ROW_PANEL.VARIABLES) extra.appendChild(buildVariablesPanel(row));
 
       if (row.activePanel === ROW_PANEL.BODY) {
         const bodyPanel = document.createElement('section');
@@ -3840,7 +4232,10 @@
     if (passed) {
       for (const [k, filterRaw] of Object.entries(row.capture || {})) {
         const r = await callJq('capture', filterRaw, fetched.body);
-        if (r.ok && r.value) VARS[k] = r.value;
+        if (r.ok && r.value) {
+          VARS[k] = r.value;
+          refreshEndpointVariableEditors(k);
+        }
       }
       row.result = completedResult('pass', { ...fetched, assertionWarnings });
       renderVarsPanel();
@@ -4877,14 +5272,16 @@
       syncEndpointSearchControls();
       searchInput.addEventListener('input', (event) => {
         state.endpointSearch = event.target.value;
+        endpointSearchResultLimit = endpointSearchBatchSize();
         syncEndpointSearchControls();
-        renderRows();
-        saveDebounced();
+        scheduleEndpointSearchRender();
       });
     }
     if (clearSearchBtn) {
       clearSearchBtn.addEventListener('click', () => {
+        cancelEndpointSearchRender();
         state.endpointSearch = '';
+        endpointSearchResultLimit = 0;
         syncEndpointSearchControls();
         renderRows();
         save();
@@ -4978,6 +5375,7 @@
         tokenProfiles: state.tokenProfiles
           .filter((profile) => !profile.locked)
           .map((profile) => ({ ...profile })),
+        suiteStaticVars: { ...suiteStaticVars },
         laneOrder: state.laneOrder,
         laneMeta: state.laneMeta,
         swaggerSource: state.swaggerSource,
