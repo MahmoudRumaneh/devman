@@ -144,7 +144,7 @@ function handleJq(req, res) {
       const mode = payload.mode === 'assert' ? 'assert' : 'capture';
       const filter = typeof payload.filter === 'string' ? payload.filter : '.';
       const input = typeof payload.input === 'string' ? payload.input : '';
-      const args = mode === 'assert' ? ['-e', filter] : ['-r', `(${filter}) // empty`];
+      const args = mode === 'assert' ? ['-e', `try (${filter}) catch false`] : ['-r', `(${filter}) // empty`];
 
       const result = spawnSync('jq', args, { input, encoding: 'utf-8', timeout: 5000 });
       if (result.error) {

@@ -2564,15 +2564,28 @@
       bits.push(`binary file${row.binaryFile ? ` · ${row.binaryFile.name}` : ' · not selected'}`);
     }
     const assertions = normalizeAssertions(row.assert);
-    if (assertions.length) bits.push(`${assertions.length} assert${assertions.length > 1 ? 's' : ''}`);
+    if (assertions.length) {
+      const assertRan = row.result?.state === 'pass' || row.result?.state === 'fail';
+      const assertIssue = row.result?.assertionFailure || row.result?.assertionError;
+      const label = `${assertions.length} assert${assertions.length > 1 ? 's' : ''}`;
+      bits.push(assertRan
+        ? { text: assertIssue ? `${label} · failed` : `${label} · passed`, variant: assertIssue ? 'is-assert-fail' : 'is-assert-pass' }
+        : label);
+    }
     if (row.result?.assertionWarnings?.length) bits.push('query fallback accepted');
     if (row.capture && Object.keys(row.capture).length) bits.push(`captures: ${Object.keys(row.capture).join(', ')}`);
     if (row.softFailIfContains && row.softFailIfContains.length) bits.push(`known-bug marker: ${row.softFailIfContains.join(', ')}`);
     if (row.continueOnFail) bits.push('continues on fail');
     return bits.map((bit) => {
       const chip = document.createElement('span');
-      chip.className = 'request-chip';
-      chip.textContent = bit;
+      const isTagged = typeof bit === 'object' && bit !== null;
+      chip.className = isTagged ? `request-chip ${bit.variant}` : 'request-chip';
+      chip.textContent = isTagged ? bit.text : bit;
+      if (isTagged && bit.variant === 'is-assert-fail' && row.result?.assertionFailure) {
+        chip.title = `Failing assertion: ${row.result.assertionFailure}`;
+      } else if (isTagged && bit.variant === 'is-assert-fail' && row.result?.assertionError) {
+        chip.title = `Assertion evaluator error: ${row.result.assertionError}`;
+      }
       return chip;
     });
   }
@@ -4310,9 +4323,12 @@
       }
     }
 
-    const passed = status > 0 && expectOk && !assertionFailure && !assertionError;
+    // Pass/fail is decided by the HTTP status expectation alone, matching how Postman's
+    // status pill works. Assertion outcome never turns this red -- it's surfaced separately
+    // (see buildAdvancedChips) so a 200 with a failed assert still reads as a successful request.
+    const statusPassed = status > 0 && expectOk;
 
-    if (passed) {
+    if (statusPassed) {
       for (const [k, filterRaw] of Object.entries(row.capture || {})) {
         const r = await callJq('capture', filterRaw, fetched.body);
         if (r.ok && r.value) {
@@ -4320,7 +4336,7 @@
           refreshEndpointVariableEditors(k);
         }
       }
-      row.result = completedResult('pass', { ...fetched, assertionWarnings });
+      row.result = completedResult('pass', { ...fetched, assertionFailure, assertionError, assertionWarnings });
       renderVarsPanel();
       return 'pass';
     }
@@ -4336,6 +4352,7 @@
       ...fetched,
       assertionFailure,
       assertionError,
+      assertionWarnings,
     });
     return row.continueOnFail ? 'fail-continue' : 'hardfail';
   }
@@ -4372,13 +4389,14 @@
       fetched.attempts = totalAttempts;
       outcome = await evaluateAndCapture(row, fetched);
 
-      const shouldRetryAssertion = Boolean(
-        row.result?.assertionFailure || row.result?.assertionError,
-      ) &&
+      // Only retry on a real status-expectation mismatch (eventual consistency at the HTTP
+      // level) -- an assertion mismatch no longer affects pass/fail, so it shouldn't burn
+      // retries either.
+      const shouldRetryForStatus = row.result?.state === 'fail' &&
         SAFE_RETRY_METHODS.has(row.method) &&
         attempt < ASSERTION_REQUEST_MAX_ATTEMPTS &&
         activeRunController?.signal.aborted !== true;
-      if (!shouldRetryAssertion) return outcome;
+      if (!shouldRetryForStatus) return outcome;
       await wait(PROXY_RETRY_DELAY_MS * (2 ** (attempt - 1)));
     }
 
@@ -4581,6 +4599,8 @@
           const attempts = r.attempts > 1 ? `, ${r.attempts} attempts` : '';
           lines.push(`\`${row.method} ${r.reqUrl}\` — status: ${r.status}, ${r.ms}ms${attempts}`);
           lines.push('');
+          if (r.assertionFailure) lines.push(`_Assert failed (status still matched expectation): \`${r.assertionFailure}\`_\n`);
+          if (r.assertionError) lines.push(`_Assert evaluator error (status still matched expectation): ${r.assertionError}_\n`);
           if (r.reqBody) {
             lines.push('**Request body**');
             lines.push('```json');

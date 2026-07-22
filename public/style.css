@@ -314,6 +314,16 @@ input:focus, textarea:focus, select:focus {
   font-size: 11px;
   overflow-wrap: anywhere;
 }
+.request-chip.is-assert-pass {
+  background: var(--green-bg);
+  color: var(--green);
+  border-color: transparent;
+}
+.request-chip.is-assert-fail {
+  background: var(--red-bg);
+  color: var(--red);
+  border-color: transparent;
+}
 .request-extra {
   grid-column: 2;
   display: grid;

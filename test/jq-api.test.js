@@ -27,3 +27,13 @@ test('evaluates true and false assertions with jq exit semantics', async () => {
   assert.equal(passing.body.pass, true);
   assert.equal(failing.body.pass, false);
 });
+
+test('an assertion on a missing nested field fails cleanly instead of erroring', async () => {
+  const response = await callJq({
+    mode: 'assert',
+    filter: '.data.seo.title | contains("expected")',
+    input: '{"data":{"id":1}}',
+  });
+  assert.equal(response.body.ok, true);
+  assert.equal(response.body.pass, false);
+});

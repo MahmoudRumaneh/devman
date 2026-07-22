@@ -17,7 +17,7 @@ module.exports = async function jq(request, response) {
     JSON.parse(input);
 
     if (mode === 'assert') {
-      const result = await raw(input, filter, ['-e']);
+      const result = await raw(input, `try (${filter}) catch false`, ['-e']);
       if (result.stderr && result.exitCode > 1) {
         return sendJson(response, 200, { ok: false, error: result.stderr.trim() });
       }
