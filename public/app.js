@@ -21,6 +21,7 @@
   const ASSERTION_EVALUATOR_MAX_ATTEMPTS = 3;
   const FAILURE_HIGHLIGHT_DURATION_MS = 2600;
   const RUN_MODE = Object.freeze({ ALL: 'all', GROUPS: 'groups', SINGLE: 'single' });
+  const UPWARD_SCROLL_KEYS = new Set(['ArrowUp', 'PageUp', 'Home']);
   const SWAGGER_IMPORT_MODE = Object.freeze({ REPLACE: 'replace', APPEND: 'append' });
   const IMPORT_SOURCE_TYPE = Object.freeze({ SWAGGER: 'swagger' });
   const SWAGGER_REFRESH_PHASE = Object.freeze({ IDLE: 'idle', LOADING: 'loading', ERROR: 'error' });
@@ -146,6 +147,8 @@
   let runInProgress = false;
   let activeRunController = null;
   let activeRunLaneId = null;
+  let followActiveRun = false;
+  let activeRunTouchY = null;
   const selectedLaneIds = new Set();
   const searchCollapsedLaneIds = new Set();
   let previousEndpointSearch = '';
@@ -1191,13 +1194,15 @@
         rowElement.classList.add('run-failure-focus');
         rowElement.setAttribute('tabindex', '-1');
 
-        const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-        rowElement.scrollIntoView({
-          behavior: reduceMotion ? 'auto' : 'smooth',
-          block: 'center',
-          inline: 'nearest',
-        });
-        rowElement.focus({ preventScroll: true });
+        if (followActiveRun) {
+          const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+          rowElement.scrollIntoView({
+            behavior: reduceMotion ? 'auto' : 'smooth',
+            block: 'center',
+            inline: 'nearest',
+          });
+          rowElement.focus({ preventScroll: true });
+        }
 
         failureHighlightTimer = window.setTimeout(() => {
           if (highlightedFailureRowId === row.id) highlightedFailureRowId = null;
@@ -4464,10 +4469,47 @@
     syncRunControls();
     const activeLane = [...document.querySelectorAll('.stage-lane')]
       .find((lane) => lane.dataset.laneId === laneId);
-    if (activeLane) {
+    if (activeLane && followActiveRun) {
       const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
       activeLane.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' });
     }
+  }
+
+  function pauseActiveRunFollow() {
+    if (!runInProgress || !followActiveRun) return;
+    followActiveRun = false;
+    window.scrollTo({ top: window.scrollY, behavior: 'auto' });
+  }
+
+  function bindActiveRunFollow() {
+    window.addEventListener('wheel', (event) => {
+      if (event.deltaY < 0) pauseActiveRunFollow();
+    }, { passive: true });
+
+    window.addEventListener('touchstart', (event) => {
+      activeRunTouchY = event.touches[0]?.clientY ?? null;
+    }, { passive: true });
+
+    window.addEventListener('touchmove', (event) => {
+      const currentTouchY = event.touches[0]?.clientY;
+      if (currentTouchY === undefined) return;
+      if (activeRunTouchY !== null && currentTouchY > activeRunTouchY) pauseActiveRunFollow();
+      activeRunTouchY = currentTouchY;
+    }, { passive: true });
+
+    const clearActiveRunTouch = () => { activeRunTouchY = null; };
+    window.addEventListener('touchend', clearActiveRunTouch, { passive: true });
+    window.addEventListener('touchcancel', clearActiveRunTouch, { passive: true });
+
+    window.addEventListener('keydown', (event) => {
+      const target = event.target;
+      const isEditing = target instanceof HTMLElement &&
+        (target.isContentEditable || ['INPUT', 'SELECT', 'TEXTAREA'].includes(target.tagName));
+      if (isEditing) return;
+      if (UPWARD_SCROLL_KEYS.has(event.key) || (event.key === ' ' && event.shiftKey)) {
+        pauseActiveRunFollow();
+      }
+    });
   }
 
   function scrollResponsePanelIntoView(row) {
@@ -4500,6 +4542,7 @@
     runInProgress = true;
     activeRunController = new AbortController();
     const isGroupRun = mode === RUN_MODE.ALL || mode === RUN_MODE.GROUPS;
+    followActiveRun = isGroupRun;
     if (isGroupRun) {
       clearFailureHighlight();
       if (state.endpointSearch) {
@@ -4553,6 +4596,7 @@
       });
       runInProgress = false;
       activeRunController = null;
+      followActiveRun = false;
       renderRows();
       syncRunControls();
       if (isGroupRun) save();
@@ -5554,7 +5598,10 @@
       bottomButton.hidden = !canScroll || !isNearTop;
     };
     const scrollBehavior = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
-    topButton.addEventListener('click', () => window.scrollTo({ top: 0, behavior: scrollBehavior() }));
+    topButton.addEventListener('click', () => {
+      pauseActiveRunFollow();
+      window.scrollTo({ top: 0, behavior: scrollBehavior() });
+    });
     bottomButton.addEventListener('click', () => window.scrollTo({
       top: document.documentElement.scrollHeight,
       behavior: scrollBehavior(),
@@ -5670,6 +5717,7 @@
     bindEndpointControls();
     bindSwaggerImport();
     bindRunBar();
+    bindActiveRunFollow();
     bindVarsPanel();
     bindPageScrollButtons();
     bindBottomDockMetrics();
