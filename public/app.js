@@ -56,7 +56,8 @@
     key: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="15" r="4"></circle><path d="m11 12 9-9M16 7l3 3M14 9l2 2"></path></svg>',
     info: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v6M12 7h.01"></path></svg>',
     play: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 5 11 7-11 7Z"></path></svg>',
-    response: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"></path><circle cx="12" cy="12" r="2.5"></circle></svg>',
+    responseShow: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"></path><circle cx="12" cy="12" r="2.5"></circle></svg>',
+    responseHide: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 3 18 18"></path><path d="M10.6 10.6a2 2 0 0 0 2.8 2.8"></path><path d="M9.9 4.2A9.8 9.8 0 0 1 12 4c6 0 9.5 8 9.5 8a16 16 0 0 1-2.1 3"></path><path d="M6.6 6.6C4 8.3 2.5 12 2.5 12S6 20 12 20c1.4 0 2.7-.3 3.8-.9"></path></svg>',
     chevron: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"></path></svg>',
     workspace: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"></rect><path d="M8 12h8M12 8v8"></path></svg>',
   };
@@ -3897,11 +3898,13 @@
       responseToggle.className = 'result-toggle response-panel-toggle';
       responseToggle.type = 'button';
       const responseIsOpen = row.responsePanelOpen === true;
-      responseToggle.innerHTML = ICONS.response;
+      responseToggle.innerHTML = responseIsOpen ? ICONS.responseHide : ICONS.responseShow;
       const responseLabel = document.createElement('span');
       responseLabel.textContent = responseIsOpen ? 'Hide' : 'View';
       responseToggle.appendChild(responseLabel);
-      responseToggle.title = responseIsOpen ? 'Hide response details' : 'Show response details';
+      const responseToggleLabel = responseIsOpen ? 'Hide response details' : 'Show response details';
+      responseToggle.title = responseToggleLabel;
+      responseToggle.setAttribute('aria-label', responseToggleLabel);
       responseToggle.setAttribute('aria-expanded', String(responseIsOpen));
       responseToggle.setAttribute('aria-controls', `response-panel-${row.id}`);
       responseToggle.addEventListener('click', () => {
