@@ -6234,12 +6234,12 @@ select.shared-select-native {
   box-shadow: var(--shadow);
 }
 
-:root[data-resolved-theme="light"] .setup-card {
+:root[data-resolved-theme="light"] .setup-card:not(.is-docked) {
   position: relative;
   overflow: hidden;
 }
 
-:root[data-resolved-theme="light"] .setup-card::after {
+:root[data-resolved-theme="light"] .setup-card:not(.is-docked)::after {
   content: "";
   position: absolute;
   inset-block-start: -42px;
