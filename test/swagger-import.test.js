@@ -208,4 +208,6 @@ test('discovers and imports an embedded document through a Swagger UI page', asy
   assert.ok(requests.length >= 2);
   assert.ok(requests.every(({ init }) => init.cache === 'no-store'));
   assert.ok(requests.every(({ init }) => init.headers['Cache-Control'] === 'no-cache'));
+  assert.ok(requests.every(({ init }) => init.headers['ngrok-skip-browser-warning'] === 'true'));
+  assert.ok(requests.every(({ init }) => init.headers['X-Tunnel-Skip-AntiPhishing-Page'] === 'true'));
 });
