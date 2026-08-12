@@ -72,7 +72,11 @@ function serveStatic(req, res) {
   }
   const ext = path.extname(filePath);
   const data = fs.readFileSync(filePath);
-  res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream', 'Content-Length': data.length });
+  res.writeHead(200, {
+    'Content-Type': MIME[ext] || 'application/octet-stream',
+    'Content-Length': data.length,
+    'Cache-Control': 'no-store, max-age=0',
+  });
   res.end(data);
 }
 

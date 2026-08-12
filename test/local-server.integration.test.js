@@ -85,6 +85,7 @@ test('local server imports private OpenAPI, proxies JSON, streams binary, and se
 
   const page = await fetch(devmanOrigin);
   assert.equal(page.status, 200);
+  assert.equal(page.headers.get('cache-control'), 'no-store, max-age=0');
   assert.match(await page.text(), /<title>Devman API<\/title>/);
 
   const swaggerResponse = await fetch(`${devmanOrigin}/api/swagger-import`, {

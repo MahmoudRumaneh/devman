@@ -3891,7 +3891,8 @@
 
   function resultHttpStatusPassed(row) {
     const result = row.result;
-    return Number.isInteger(result?.status) && result.status > 0 && statusMatches(result.status, row.expect);
+    const status = Number(result?.status);
+    return Number.isInteger(status) && status > 0 && statusMatches(status, row.expect);
   }
 
   function resultHasHttpError(row) {
