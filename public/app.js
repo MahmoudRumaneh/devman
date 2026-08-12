@@ -5,6 +5,7 @@
   const THEME_KEY = 'devmanApi.theme';
   const GUIDE_SEEN_KEY = 'devmanApi.guideSeen.v1';
   const GUIDE_SEEN_VALUE = 'seen';
+  const API_INFO_HASH = '#api-testing-faq';
   const LEGACY_STORAGE_KEY = 'apiTestStudio.v3';
   const LEGACY_THEME_KEY = 'apiTestStudio.theme';
   const DEFAULT_PROJECT_NAME = 'devman-api';
@@ -123,6 +124,25 @@
   };
 
   const el = (id) => document.getElementById(id);
+
+  const MODAL_FOCUSABLE_SELECTOR = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+  function trapModalTabKey(event, modal) {
+    if (event.key !== 'Tab') return;
+    const focusableElements = [...modal.querySelectorAll(MODAL_FOCUSABLE_SELECTOR)]
+      .filter((element) => !element.hidden && element.offsetParent !== null);
+    if (!focusableElements.length) return;
+    const first = focusableElements[0];
+    const last = focusableElements[focusableElements.length - 1];
+    const focusIsOutsideTabOrder = !focusableElements.includes(document.activeElement);
+    if (event.shiftKey && (document.activeElement === first || focusIsOutsideTabOrder)) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
 
   const state = {
     baseUrl: 'https://api.example.com/v1',
@@ -1463,8 +1483,6 @@
     let returnFocus = null;
     let closeTimer;
 
-    const focusableSelector = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
-
     const syncPage = ({ moveFocus = false } = {}) => {
       pages.forEach((page, index) => {
         const isActive = index === pageIndex;
@@ -1506,21 +1524,7 @@
         close();
         return;
       }
-      if (event.key !== 'Tab') return;
-
-      const focusableElements = [...modal.querySelectorAll(focusableSelector)]
-        .filter((element) => !element.hidden && element.offsetParent !== null);
-      if (!focusableElements.length) return;
-      const first = focusableElements[0];
-      const last = focusableElements[focusableElements.length - 1];
-      const focusIsOutsideTabOrder = !focusableElements.includes(document.activeElement);
-      if (event.shiftKey && (document.activeElement === first || focusIsOutsideTabOrder)) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
+      trapModalTabKey(event, modal);
     };
 
     const open = ({ source = null } = {}) => {
@@ -1558,8 +1562,87 @@
     });
     syncPage();
 
-    if (localStorage.getItem(GUIDE_SEEN_KEY) !== GUIDE_SEEN_VALUE) {
+    if (localStorage.getItem(GUIDE_SEEN_KEY) !== GUIDE_SEEN_VALUE
+      && window.location.hash !== API_INFO_HASH) {
       window.requestAnimationFrame(() => open());
+    }
+  }
+
+  function bindApiInfoModal() {
+    const trigger = el('apiInfoLink');
+    const modal = el('api-testing-faq');
+    const closeButton = el('apiInfoClose');
+    const doneButton = el('apiInfoDone');
+    const title = el('apiTestingGuideTitle');
+    if (!trigger || !modal || !closeButton || !doneButton || !title) return;
+
+    let returnFocus = trigger;
+    let closeTimer;
+
+    const removeHash = () => {
+      if (window.location.hash !== API_INFO_HASH) return;
+      window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
+    };
+
+    const close = ({ focusTarget = returnFocus, updateHash = true } = {}) => {
+      if (modal.hidden) return;
+      modal.classList.remove('is-visible');
+      trigger.setAttribute('aria-expanded', 'false');
+      document.body.classList.remove('modal-open');
+      document.removeEventListener('keydown', onKeydown);
+      if (updateHash) removeHash();
+      window.clearTimeout(closeTimer);
+      closeTimer = window.setTimeout(() => {
+        modal.hidden = true;
+        if (focusTarget?.isConnected) focusTarget.focus({ preventScroll: true });
+      }, GUIDE_CLOSE_ANIMATION_MS);
+    };
+
+    const onKeydown = (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        close();
+        return;
+      }
+      trapModalTabKey(event, modal);
+    };
+
+    const open = ({ source = null, updateHash = true } = {}) => {
+      window.clearTimeout(closeTimer);
+      if (!modal.hidden) return;
+      returnFocus = source instanceof HTMLElement ? source : trigger;
+      if (updateHash && window.location.hash !== API_INFO_HASH) {
+        window.history.pushState(null, '', API_INFO_HASH);
+      }
+      modal.hidden = false;
+      trigger.setAttribute('aria-expanded', 'true');
+      document.body.classList.add('modal-open');
+      document.addEventListener('keydown', onKeydown);
+      window.requestAnimationFrame(() => {
+        modal.classList.add('is-visible');
+        title.focus();
+      });
+    };
+
+    const syncWithLocation = () => {
+      if (window.location.hash === API_INFO_HASH) open({ updateHash: false });
+      else close({ updateHash: false });
+    };
+
+    trigger.setAttribute('aria-expanded', 'false');
+    trigger.addEventListener('click', (event) => {
+      event.preventDefault();
+      open({ source: trigger });
+    });
+    closeButton.addEventListener('click', () => close());
+    doneButton.addEventListener('click', () => close({ focusTarget: el('baseUrl') }));
+    modal.addEventListener('click', (event) => {
+      if (event.target === modal) close();
+    });
+    window.addEventListener('hashchange', syncWithLocation);
+    window.addEventListener('popstate', syncWithLocation);
+    if (window.location.hash === API_INFO_HASH) {
+      window.requestAnimationFrame(() => open({ updateHash: false }));
     }
   }
 
@@ -5824,6 +5907,7 @@
     bindBottomDockMetrics();
     bindTokenCardDock();
     bindGuide();
+    bindApiInfoModal();
     if (!hasSavedWorkspace && !state.rows.length && !state.laneOrder.length) {
       const laneId = lastLaneId();
       const profile = state.tokenProfiles[0];

@@ -1,6 +1,6 @@
 {
   "name": "devman-api",
-  "version": "1.0.3",
+  "version": "1.0.5",
   "private": true,
   "description": "Devman API is a browser-based workspace for building and running staged API test flows.",
   "scripts": {

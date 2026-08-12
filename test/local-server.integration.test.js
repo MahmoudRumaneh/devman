@@ -88,9 +88,14 @@ test('local server imports private OpenAPI, proxies JSON, streams binary, and se
   assert.equal(page.headers.get('cache-control'), 'public, max-age=0, must-revalidate');
   assert.match(await page.text(), /<title>Devman API: Free Online REST API Testing Tool<\/title>/);
 
-  const appScript = await fetch(`${devmanOrigin}/app.js?v=1.0.3`);
+  const appScript = await fetch(`${devmanOrigin}/app.js?v=1.0.5`);
   assert.equal(appScript.status, 200);
   assert.equal(appScript.headers.get('cache-control'), 'public, max-age=31536000, immutable');
+
+  const favicon = await fetch(`${devmanOrigin}/favicon.ico?v=1.0.5`);
+  assert.equal(favicon.status, 200);
+  assert.equal(favicon.headers.get('content-type'), 'image/x-icon');
+  assert.equal(favicon.headers.get('cache-control'), 'public, max-age=31536000, immutable');
 
   const sitemap = await fetch(`${devmanOrigin}/sitemap.xml`);
   assert.equal(sitemap.status, 200);

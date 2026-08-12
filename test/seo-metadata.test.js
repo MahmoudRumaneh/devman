@@ -45,6 +45,15 @@ test('homepage contains visible, semantic API testing content', () => {
   assert.match(html, /id="api-testing-faq"/);
 });
 
+test('API guide and FAQ uses an accessible hash-linked dialog', () => {
+  assert.match(html, /id="apiInfoLink"[^>]+href="#api-testing-faq"[^>]+aria-haspopup="dialog"/);
+  assert.match(html, /id="api-testing-faq" class="modal-backdrop api-info-backdrop" hidden/);
+  assert.match(html, /class="modal api-info-modal" role="dialog" aria-modal="true"/);
+  assert.match(html, /aria-labelledby="apiTestingGuideTitle"/);
+  assert.match(html, /<details>\s*<summary>What is Devman API\?<\/summary>/);
+  assert.match(html, /id="apiInfoClose"[^>]+aria-label="Close API guide and FAQ"/);
+});
+
 test('robots and sitemap expose only the canonical public website', () => {
   const robots = fs.readFileSync(path.join(publicDirectory, 'robots.txt'), 'utf8');
   const sitemap = fs.readFileSync(path.join(publicDirectory, 'sitemap.xml'), 'utf8');

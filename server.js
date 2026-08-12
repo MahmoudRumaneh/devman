@@ -39,11 +39,12 @@ const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'application/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
+  '.ico': 'image/x-icon',
   '.json': 'application/json; charset=utf-8',
   '.txt': 'text/plain; charset=utf-8',
   '.xml': 'application/xml; charset=utf-8',
 };
-const IMMUTABLE_ASSET_EXTENSIONS = new Set(['.css', '.js', '.png']);
+const IMMUTABLE_ASSET_EXTENSIONS = new Set(['.css', '.ico', '.js', '.png']);
 const IMMUTABLE_CACHE_CONTROL = 'public, max-age=31536000, immutable';
 const REVALIDATE_CACHE_CONTROL = 'public, max-age=0, must-revalidate';
 

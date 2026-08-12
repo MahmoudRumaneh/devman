@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<meta name="application-version" content="1.0.3" />
+<meta name="application-version" content="1.0.5" />
 <meta name="application-name" content="Devman API" />
 <meta name="author" content="Mahmoud Rumaneh" />
 <meta name="description" content="Test REST APIs online with Devman API. Import Swagger, OpenAPI, and Postman collections, paste cURL, run workflows, inspect responses, and export reports." />
@@ -33,9 +33,11 @@
 <meta name="twitter:image" content="https://devman-api.com/devman-api-logo.png" />
 <meta name="twitter:image:alt" content="Devman API online API testing workspace" />
 <title>Devman API: Free Online REST API Testing Tool</title>
-<link rel="icon" type="image/png" href="devman-api-logo.png?v=1.0.3" />
-<link rel="apple-touch-icon" href="devman-api-logo.png?v=1.0.3" />
-<link rel="stylesheet" href="style.css?v=1.0.3" />
+<link rel="icon" href="/favicon.ico?v=1.0.5" sizes="any" />
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png?v=1.0.5" />
+<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png?v=1.0.5" />
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v=1.0.5" />
+<link rel="stylesheet" href="style.css?v=1.0.5" />
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
@@ -89,7 +91,7 @@
   <header class="topbar">
     <div class="topbar-inner">
       <div class="brand">
-        <img class="brand-logo" src="devman-api-logo.png?v=1.0.3" alt="Devman API online REST API testing tool" width="53" height="40" fetchpriority="high" />
+        <img class="brand-logo" src="devman-api-logo.png?v=1.0.5" alt="Devman API online REST API testing tool" width="53" height="40" fetchpriority="high" />
         <div>
           <h1>Devman API</h1>
           <p>Import suites, run staged flows, inspect responses.</p>
@@ -262,66 +264,13 @@ curl 'https://api.example.com/users' \
       </div>
     </section>
 
-    <section class="seo-content card" aria-labelledby="apiTestingGuideTitle">
-      <header class="seo-content-head">
-        <p class="seo-eyebrow">One practical API client</p>
-        <h2 id="apiTestingGuideTitle">API testing built for real development workflows</h2>
-        <p>Test individual HTTP endpoints or reproduce a complete user journey. Devman API keeps requests, authentication, variables, expected status codes, response bodies, and run results together.</p>
-      </header>
-
-      <div class="seo-feature-grid">
-        <article>
-          <h3>Swagger and OpenAPI testing</h3>
-          <p>Import OpenAPI 3.x, Swagger 2.0, JSON, YAML, or a Swagger UI URL and turn documented operations into request-ready API tests.</p>
-        </article>
-        <article>
-          <h3>Postman and cURL import</h3>
-          <p>Bring in Postman Collection v2 files or paste cURL from Bash, PowerShell, and Windows Command Prompt with headers, cookies, and bodies preserved.</p>
-        </article>
-        <article>
-          <h3>REST API workflow testing</h3>
-          <p>Run requests sequentially, capture tokens and IDs from responses, reuse variables in later endpoints, and validate expected HTTP status codes.</p>
-        </article>
-        <article>
-          <h3>Request and response debugging</h3>
-          <p>Inspect the resolved URL, sent headers, request body, response headers, response body, file downloads, duration, and retry count in one place.</p>
-        </article>
-      </div>
-
-      <div id="api-testing-faq" class="seo-faq" aria-labelledby="apiTestingFaqTitle">
-        <h2 id="apiTestingFaqTitle">API testing FAQ</h2>
-        <dl>
-          <div>
-            <dt>What is Devman API?</dt>
-            <dd>Devman API is a browser-based REST API testing tool for building requests, running connected workflows, inspecting HTTP responses, and exporting reusable test suites.</dd>
-          </div>
-          <div>
-            <dt>Can I import Swagger, OpenAPI, or Postman?</dt>
-            <dd>Yes. Devman imports OpenAPI 3.x, Swagger 2.0, direct JSON or YAML specifications, Swagger UI pages, and Postman Collection v2.0 and v2.1 files.</dd>
-          </div>
-          <div>
-            <dt>Can I test an API from a cURL command?</dt>
-            <dd>Yes. Paste complete cURL commands to import the HTTP method, URL, headers, cookies, request body, multipart fields, and supported upload definitions.</dd>
-          </div>
-          <div>
-            <dt>How are multi-step API workflows tested?</dt>
-            <dd>Requests run in order. Values such as access tokens and resource IDs can be captured from one JSON response and reused as variables in every request that follows.</dd>
-          </div>
-          <div>
-            <dt>Is Devman API a free Postman alternative?</dt>
-            <dd>Devman is a free, open-source option for common API request, import, workflow, inspection, and reporting tasks. It focuses on lightweight sequential API flows in the browser.</dd>
-          </div>
-        </dl>
-      </div>
-    </section>
-
     <footer class="site-footer">
       <div class="footer-credit">
         <span>Developed by</span>
         <a href="https://mhmoud.life" target="_blank" rel="noopener noreferrer">Mahmoud Rumaneh <span aria-hidden="true">↗</span></a>
       </div>
       <nav class="footer-links" aria-label="Project links">
-        <a href="#api-testing-faq">FAQ</a>
+        <a id="apiInfoLink" href="#api-testing-faq" aria-haspopup="dialog" aria-controls="api-testing-faq" aria-expanded="false">API guide &amp; FAQ</a>
         <a href="https://github.com/MahmoudRumaneh/devman" target="_blank" rel="noopener noreferrer">GitHub <span aria-hidden="true">↗</span></a>
         <a id="reportIssueLink" class="report-issue-link" href="https://github.com/MahmoudRumaneh/devman/issues/new" target="_blank" rel="noopener noreferrer">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8v4M12 16h.01"></path><circle cx="12" cy="12" r="9"></circle></svg>
@@ -426,7 +375,7 @@ curl 'https://api.example.com/users' \
       <header class="guide-head">
         <div class="guide-heading">
           <span class="guide-logo-wrap" aria-hidden="true">
-            <img src="devman-api-logo.png?v=1.0.3" alt="" width="44" height="33" />
+            <img src="devman-api-logo.png?v=1.0.5" alt="" width="44" height="33" />
           </span>
           <div>
             <span class="guide-eyebrow">Welcome to Devman API</span>
@@ -517,6 +466,79 @@ curl 'https://api.example.com/users' \
     </section>
   </div>
 
+  <div id="api-testing-faq" class="modal-backdrop api-info-backdrop" hidden>
+    <section class="modal api-info-modal" role="dialog" aria-modal="true" aria-labelledby="apiTestingGuideTitle" aria-describedby="apiTestingGuideIntro">
+      <span class="guide-glow guide-glow-one" aria-hidden="true"></span>
+      <span class="guide-glow guide-glow-two" aria-hidden="true"></span>
+
+      <header class="api-info-head">
+        <div class="api-info-heading">
+          <span class="api-info-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M8 9h8M8 13h5"></path><path d="M6 4h12a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-6l-4 3v-3H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"></path></svg>
+          </span>
+          <div>
+            <span class="guide-eyebrow">Devman API guide</span>
+            <h2 id="apiTestingGuideTitle" tabindex="-1">API testing built for real development workflows</h2>
+            <p id="apiTestingGuideIntro">Explore the formats, workflows, and debugging tools available in Devman API.</p>
+          </div>
+        </div>
+        <button id="apiInfoClose" class="guide-close" type="button" aria-label="Close API guide and FAQ">×</button>
+      </header>
+
+      <div class="api-info-content">
+        <div class="seo-feature-grid">
+          <article>
+            <h3>Swagger and OpenAPI testing</h3>
+            <p>Import OpenAPI 3.x, Swagger 2.0, JSON, YAML, or a Swagger UI URL and turn documented operations into request-ready API tests.</p>
+          </article>
+          <article>
+            <h3>Postman and cURL import</h3>
+            <p>Bring in Postman Collection v2 files or paste cURL from Bash, PowerShell, and Windows Command Prompt with headers, cookies, and bodies preserved.</p>
+          </article>
+          <article>
+            <h3>REST API workflow testing</h3>
+            <p>Run requests sequentially, capture tokens and IDs from responses, reuse variables in later endpoints, and validate expected HTTP status codes.</p>
+          </article>
+          <article>
+            <h3>Request and response debugging</h3>
+            <p>Inspect the resolved URL, sent headers, request body, response headers, response body, file downloads, duration, and retry count in one place.</p>
+          </article>
+        </div>
+
+        <div class="seo-faq" aria-labelledby="apiTestingFaqTitle">
+          <h3 id="apiTestingFaqTitle">Frequently asked questions</h3>
+          <div class="api-faq-list">
+            <details>
+              <summary>What is Devman API?</summary>
+              <p>Devman API is a browser-based REST API testing tool for building requests, running connected workflows, inspecting HTTP responses, and exporting reusable test suites.</p>
+            </details>
+            <details>
+              <summary>Can I import Swagger, OpenAPI, or Postman?</summary>
+              <p>Yes. Devman imports OpenAPI 3.x, Swagger 2.0, direct JSON or YAML specifications, Swagger UI pages, and Postman Collection v2.0 and v2.1 files.</p>
+            </details>
+            <details>
+              <summary>Can I test an API from a cURL command?</summary>
+              <p>Yes. Paste complete cURL commands to import the HTTP method, URL, headers, cookies, request body, multipart fields, and supported upload definitions.</p>
+            </details>
+            <details>
+              <summary>How are multi-step API workflows tested?</summary>
+              <p>Requests run in order. Values such as access tokens and resource IDs can be captured from one JSON response and reused as variables in every request that follows.</p>
+            </details>
+            <details>
+              <summary>Is Devman API a free Postman alternative?</summary>
+              <p>Devman is a free, open-source option for common API request, import, workflow, inspection, and reporting tasks. It focuses on lightweight sequential API flows in the browser.</p>
+            </details>
+          </div>
+        </div>
+      </div>
+
+      <footer class="modal-actions api-info-actions">
+        <p><strong>Ready to test?</strong><span>Close this guide and start with your API base URL.</span></p>
+        <button id="apiInfoDone" class="btn primary" type="button">Start testing APIs <span aria-hidden="true">→</span></button>
+      </footer>
+    </section>
+  </div>
+
   <div id="swaggerImportModal" class="modal-backdrop" hidden>
     <div class="modal swagger-import-modal" role="dialog" aria-modal="true" aria-labelledby="swaggerImportTitle" aria-describedby="swaggerImportIntro">
       <div class="swagger-import-head">
@@ -561,13 +583,13 @@ curl 'https://api.example.com/users' \
     </div>
   </div>
 
-  <script src="assertion-utils.js?v=1.0.3"></script>
-  <script src="file-name-utils.js?v=1.0.3"></script>
-  <script src="suite-utils.js?v=1.0.3"></script>
-  <script src="variable-utils.js?v=1.0.3"></script>
-  <script src="curl-parser.js?v=1.0.3"></script>
-  <script src="postman-import.js?v=1.0.3"></script>
-  <script src="issue-report-utils.js?v=1.0.3"></script>
-  <script src="app.js?v=1.0.3"></script>
+  <script src="assertion-utils.js?v=1.0.5"></script>
+  <script src="file-name-utils.js?v=1.0.5"></script>
+  <script src="suite-utils.js?v=1.0.5"></script>
+  <script src="variable-utils.js?v=1.0.5"></script>
+  <script src="curl-parser.js?v=1.0.5"></script>
+  <script src="postman-import.js?v=1.0.5"></script>
+  <script src="issue-report-utils.js?v=1.0.5"></script>
+  <script src="app.js?v=1.0.5"></script>
 </body>
 </html>
