@@ -40,7 +40,12 @@ const MIME = {
   '.js': 'application/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
+  '.txt': 'text/plain; charset=utf-8',
+  '.xml': 'application/xml; charset=utf-8',
 };
+const IMMUTABLE_ASSET_EXTENSIONS = new Set(['.css', '.js', '.png']);
+const IMMUTABLE_CACHE_CONTROL = 'public, max-age=31536000, immutable';
+const REVALIDATE_CACHE_CONTROL = 'public, max-age=0, must-revalidate';
 
 function sendJson(res, status, payload) {
   const body = Buffer.from(JSON.stringify(payload));
@@ -75,7 +80,9 @@ function serveStatic(req, res) {
   res.writeHead(200, {
     'Content-Type': MIME[ext] || 'application/octet-stream',
     'Content-Length': data.length,
-    'Cache-Control': 'no-store, max-age=0',
+    'Cache-Control': IMMUTABLE_ASSET_EXTENSIONS.has(ext)
+      ? IMMUTABLE_CACHE_CONTROL
+      : REVALIDATE_CACHE_CONTROL,
   });
   res.end(data);
 }

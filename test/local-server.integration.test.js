@@ -85,8 +85,16 @@ test('local server imports private OpenAPI, proxies JSON, streams binary, and se
 
   const page = await fetch(devmanOrigin);
   assert.equal(page.status, 200);
-  assert.equal(page.headers.get('cache-control'), 'no-store, max-age=0');
-  assert.match(await page.text(), /<title>Devman API<\/title>/);
+  assert.equal(page.headers.get('cache-control'), 'public, max-age=0, must-revalidate');
+  assert.match(await page.text(), /<title>Devman API: Free Online REST API Testing Tool<\/title>/);
+
+  const appScript = await fetch(`${devmanOrigin}/app.js?v=1.0.3`);
+  assert.equal(appScript.status, 200);
+  assert.equal(appScript.headers.get('cache-control'), 'public, max-age=31536000, immutable');
+
+  const sitemap = await fetch(`${devmanOrigin}/sitemap.xml`);
+  assert.equal(sitemap.status, 200);
+  assert.match(sitemap.headers.get('content-type'), /^application\/xml/);
 
   const swaggerResponse = await fetch(`${devmanOrigin}/api/swagger-import`, {
     method: 'POST',
