@@ -9,7 +9,7 @@
 <p align="center">Import OpenAPI, paste cURL commands, connect requests with captured values, and export a clear Markdown test report.</p>
 
 <p align="center">
-  <a href="https://github.com/MahmoudRumaneh/api-tool/actions/workflows/ci.yml"><img alt="CI status" src="https://github.com/MahmoudRumaneh/api-tool/actions/workflows/ci.yml/badge.svg" /></a>
+  <a href="https://github.com/MahmoudRumaneh/devman/actions/workflows/ci.yml"><img alt="CI status" src="https://github.com/MahmoudRumaneh/devman/actions/workflows/ci.yml/badge.svg" /></a>
   <img alt="Node.js 24" src="https://img.shields.io/badge/Node.js-24-339933?logo=node.js&logoColor=white" />
 </p>
 
@@ -46,8 +46,8 @@ Devman API keeps that complete flow in one place. Requests run sequentially, val
 ### Run locally
 
 ```bash
-git clone https://github.com/MahmoudRumaneh/api-tool.git
-cd api-tool
+git clone https://github.com/MahmoudRumaneh/devman.git
+cd devman
 npm ci
 npm start
 ```
@@ -201,7 +201,7 @@ See [SECURITY.md](SECURITY.md) for the complete reporting policy.
 ## Project structure
 
 ```text
-api-tool/
+devman/
 ├── api/       # Vercel serverless endpoints
 ├── lib/       # Shared proxy, retry, security, and OpenAPI logic
 ├── public/    # Browser application and reusable frontend utilities
@@ -214,7 +214,7 @@ api-tool/
 
 Contributions are welcome:
 
-1. [Open an issue](https://github.com/MahmoudRumaneh/api-tool/issues/new) for a bug or proposed change.
+1. [Open an issue](https://github.com/MahmoudRumaneh/devman/issues/new) for a bug or proposed change.
 2. Fork the repository and create a focused branch.
 3. Install dependencies with `npm ci`.
 4. Make the change and add tests where appropriate.
@@ -227,7 +227,7 @@ Please keep changes focused, avoid committing tokens or generated reports, and p
 
 Use **Report an issue** in the website footer. It opens a pre-filled GitHub issue with safe diagnostics about the current app and workspace.
 
-You can also [open a GitHub issue directly](https://github.com/MahmoudRumaneh/api-tool/issues/new?title=%5BBug%5D+&body=%23%23+What+happened%3F%0A%0APlease+describe+the+problem+and+what+you+were+trying+to+do.%0A%0A%23%23+Steps+to+reproduce%0A%0A1.+%0A2.+%0A3.+%0A%0A%23%23+Expected+behavior%0A%0AWhat+did+you+expect+Devman+API+to+do%3F%0A%0A%23%23+Extra+notes%0A%0AAdd+screenshots+or+a+screen+recording+if+they+would+help.).
+You can also [open a GitHub issue directly](https://github.com/MahmoudRumaneh/devman/issues/new?title=%5BBug%5D+&body=%23%23+What+happened%3F%0A%0APlease+describe+the+problem+and+what+you+were+trying+to+do.%0A%0A%23%23+Steps+to+reproduce%0A%0A1.+%0A2.+%0A3.+%0A%0A%23%23+Expected+behavior%0A%0AWhat+did+you+expect+Devman+API+to+do%3F%0A%0A%23%23+Extra+notes%0A%0AAdd+screenshots+or+a+screen+recording+if+they+would+help.).
 
 When reporting a problem, include the smallest reproducible suite you can share safely and remove all credentials and private API data.
 
