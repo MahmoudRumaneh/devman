@@ -108,7 +108,7 @@ test('normalizes operations, security, parameters, examples, and base URL', () =
   assert.equal(imported.operations.length, 2);
   assert.deepEqual(imported.operations[0], {
     method: 'GET',
-    path: '/pets/{id}?include=owner',
+    path: '/pets/${ID}?include=owner',
     summary: 'Read a pet',
     tags: ['Pets'],
     group: 'Pets',
@@ -180,6 +180,87 @@ test('prepares multipart and binary OpenAPI request bodies for file selection', 
     { name: 'asset', kind: 'file', value: '', file: null },
   ]);
   assert.equal(imported.operations[1].bodyMode, 'binary');
+});
+
+test('imports path examples, cookie parameters, urlencoded forms, and text bodies', () => {
+  const imported = normalizeOpenApiDocument({
+    openapi: '3.1.0',
+    info: { title: 'Request formats', version: '1' },
+    paths: {
+      '/users/{id}': {
+        get: {
+          parameters: [
+            { name: 'id', in: 'path', required: true, example: 'user 42', schema: { type: 'string' } },
+            { name: 'session', in: 'cookie', required: true, schema: { type: 'string', example: 'abc' } },
+          ],
+          responses: { 200: { description: 'OK' } },
+        },
+      },
+      '/sessions': {
+        post: {
+          requestBody: {
+            content: {
+              'application/x-www-form-urlencoded': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    email: { type: 'string', example: 'user@example.com' },
+                    remember: { type: 'boolean', example: true },
+                  },
+                },
+              },
+            },
+          },
+          responses: { 204: { description: 'Created' } },
+        },
+      },
+      '/notes': {
+        post: {
+          requestBody: { content: { 'text/plain': { example: 'hello' } } },
+          responses: { 201: { description: 'Created' } },
+        },
+      },
+    },
+  }, 'https://example.com/openapi.json', 'https://example.com/openapi.json');
+
+  assert.equal(imported.operations[0].path, '/users/user%2042');
+  assert.equal(imported.operations[0].headers.Cookie, 'session=abc');
+  assert.equal(imported.operations[1].body, 'email=user%40example.com&remember=true');
+  assert.equal(imported.operations[1].headers['Content-Type'], 'application/x-www-form-urlencoded');
+  assert.equal(imported.operations[2].body, 'hello');
+  assert.equal(imported.operations[2].headers['Content-Type'], 'text/plain');
+});
+
+test('maps bearer, API key, and basic OpenAPI security without sending the wrong auth scheme', () => {
+  const imported = normalizeOpenApiDocument({
+    openapi: '3.1.0',
+    info: { title: 'Auth API', version: '1' },
+    components: {
+      securitySchemes: {
+        bearerAuth: { type: 'http', scheme: 'bearer' },
+        serviceKey: { type: 'apiKey', in: 'header', name: 'X-Service-Key' },
+        basicAuth: { type: 'http', scheme: 'basic' },
+      },
+    },
+    paths: {
+      '/bearer': {
+        get: { security: [{ bearerAuth: [] }], responses: { 200: { description: 'OK' } } },
+      },
+      '/key': {
+        get: { security: [{ serviceKey: [] }], responses: { 200: { description: 'OK' } } },
+      },
+      '/basic': {
+        get: { security: [{ basicAuth: [] }], responses: { 200: { description: 'OK' } } },
+      },
+    },
+  }, 'https://example.com/openapi.json', 'https://example.com/openapi.json');
+
+  assert.equal(imported.operations[0].secured, true);
+  assert.deepEqual(imported.operations[0].headers, {});
+  assert.equal(imported.operations[1].secured, false);
+  assert.equal(imported.operations[1].headers['X-Service-Key'], '${SERVICE_KEY_API_KEY}');
+  assert.equal(imported.operations[2].secured, false);
+  assert.equal(imported.operations[2].headers.Authorization, 'Basic ${BASIC_AUTH}');
 });
 
 test('discovers and imports an embedded document through a Swagger UI page', async () => {

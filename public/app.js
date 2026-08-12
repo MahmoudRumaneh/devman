@@ -344,7 +344,7 @@
       laneMeta: state.laneMeta,
       endpointSearch: state.endpointSearch,
       swaggerSource: state.swaggerSource,
-      rows: state.rows.map(({ result, ...rest }) => rest),
+      rows: state.rows.map(({ result: _result, ...rest }) => rest),
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
   }
@@ -1712,6 +1712,12 @@
 
   function importParsedJson(parsed) {
     if (!isRecord(parsed)) throw new Error('The JSON root must be an object');
+    const postmanImporter = window.DevmanPostmanImport;
+    if (postmanImporter?.isPostmanCollection(parsed)) {
+      const suite = postmanImporter.postmanCollectionToSuite(parsed);
+      const importedTokenCount = importTokenConfiguration(suite);
+      return { ...importEngineSuite(suite), importedTokenCount, tokensOnly: false, swaggerSource: null };
+    }
     const importedTokenCount = importTokenConfiguration(parsed);
     if (Array.isArray(parsed.steps)) {
       return { ...importEngineSuite(parsed), importedTokenCount, tokensOnly: false, swaggerSource: null };
@@ -1722,6 +1728,9 @@
     state.sendTenantHeader = parsed.sendTenantHeader ?? state.sendTenantHeader;
     suiteStaticVars = parsed.suiteStaticVars || {};
     if (!Array.isArray(parsed.rows)) {
+      if (!isRecord(parsed.tokens)) {
+        throw new Error('Unsupported JSON file. Import a Devman suite/export, token JSON, or Postman Collection v2.0/v2.1.');
+      }
       return {
         rows: state.rows,
         laneOrder: state.laneOrder,
@@ -1817,6 +1826,10 @@
       softFailIfContains: step.soft_fail_if_contains || [],
       continueOnFail: !!step.continue_on_fail,
       note: step.name || '',
+      bodyMode: BODY_MODE_VALUES.has(step.bodyMode) ? step.bodyMode
+        : BODY_MODE_VALUES.has(step.body_mode) ? step.body_mode : BODY_MODE.RAW,
+      formData: normalizeFormData(step.formData ?? step.form_data),
+      binaryFile: normalizeFileMetadata(step.binaryFile ?? step.binary_file),
     });
   }
 
@@ -3804,6 +3817,25 @@
     requestLine.textContent = `${row.method} ${r.reqUrl}`;
     panel.appendChild(requestLine);
 
+    const appendHeaders = (label, rawHeaders, redactSensitive = false) => {
+      if (!isRecord(rawHeaders) || !Object.keys(rawHeaders).length) return;
+      const details = document.createElement('details');
+      details.className = 'request-sent response-headers';
+      const summary = document.createElement('summary');
+      summary.textContent = label;
+      const pre = document.createElement('pre');
+      pre.textContent = Object.entries(rawHeaders).map(([name, value]) => {
+        const isSensitive = redactSensitive && ['authorization', 'cookie', 'set-cookie', 'x-api-key']
+          .includes(name.toLowerCase());
+        return `${name}: ${isSensitive ? '<redacted>' : value}`;
+      }).join('\n');
+      details.append(summary, pre);
+      panel.appendChild(details);
+    };
+
+    appendHeaders('Sent headers', r.reqHeaders, true);
+    appendHeaders('Response headers', r.responseHeaders);
+
     if (r.reqBody) {
       const sent = document.createElement('details');
       sent.className = 'request-sent';
@@ -4098,7 +4130,12 @@
   function responseFileName(contentDisposition, requestUrl, contentType) {
     const safeName = (value) => String(value || '')
       .split(/[\\/]/).pop()
-      .replace(/[\u0000-\u001f\u007f]/g, '')
+      .split('')
+      .filter((character) => {
+        const code = character.charCodeAt(0);
+        return code > 31 && code !== 127;
+      })
+      .join('')
       .trim();
     const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
     const plainMatch = contentDisposition.match(/filename="([^"]+)"|filename=([^;]+)/i);
@@ -4156,6 +4193,7 @@
 
         const contentType = response.headers.get('content-type') || '';
         const contentDisposition = response.headers.get('content-disposition') || '';
+        const responseHeaders = Object.fromEntries(response.headers.entries());
         const contentLength = Number(response.headers.get('x-devman-content-length')) || 0;
         const textResponse = isTextResponse(contentType, contentDisposition);
         const upstreamStatus = Number(response.headers.get('x-devman-upstream-status')) || response.status;
@@ -4217,6 +4255,7 @@
           responseFileName: fileName,
           responseIsText: textResponse,
           responseTruncated: textResponse && body.length >= MAX_RESPONSE_PREVIEW_CHARS,
+          responseHeaders,
           cancelled,
         };
       } catch (error) {
@@ -4259,6 +4298,7 @@
         responseFileName: output.responseFileName,
         responseIsText: output.responseIsText,
         responseTruncated: output.responseTruncated,
+        responseHeaders: output.responseHeaders,
         cancelled: output.cancelled,
       };
     } catch (e) {
@@ -4331,12 +4371,14 @@
       }
     }
 
-    // Pass/fail is decided by the HTTP status expectation alone, matching how Postman's
-    // status pill works. Assertion outcome never turns this red -- it's surfaced separately
-    // (see buildAdvancedChips) so a 200 with a failed assert still reads as a successful request.
+    // A test passes only when both its HTTP expectation and every jq assertion pass.
+    // Assertion evaluator errors are kept separate from ordinary false expressions so the
+    // response panel can explain whether the API or the assertion itself needs attention.
     const statusPassed = status > 0 && expectOk;
+    const assertionsPassed = !assertionFailure && !assertionError;
+    const requestPassed = statusPassed && assertionsPassed;
 
-    if (statusPassed) {
+    if (requestPassed) {
       for (const [k, filterRaw] of Object.entries(row.capture || {})) {
         const r = await callJq('capture', filterRaw, fetched.body);
         if (r.ok && r.value) {
@@ -4381,6 +4423,7 @@
       responseFileName: fetched.responseFileName,
       responseIsText: fetched.responseIsText,
       responseTruncated: fetched.responseTruncated,
+      responseHeaders: fetched.responseHeaders,
       assertionFailure: fetched.assertionFailure,
       assertionError: fetched.assertionError,
       assertionWarnings: fetched.assertionWarnings,
@@ -4397,10 +4440,10 @@
       fetched.attempts = totalAttempts;
       outcome = await evaluateAndCapture(row, fetched);
 
-      // Only retry on a real status-expectation mismatch (eventual consistency at the HTTP
-      // level) -- an assertion mismatch no longer affects pass/fail, so it shouldn't burn
-      // retries either.
+      // Safe read requests can be retried for eventual-consistency mismatches. Evaluator
+      // errors are deterministic configuration problems and should fail immediately.
       const shouldRetryForStatus = row.result?.state === 'fail' &&
+        !row.result?.assertionError &&
         SAFE_RETRY_METHODS.has(row.method) &&
         attempt < ASSERTION_REQUEST_MAX_ATTEMPTS &&
         activeRunController?.signal.aborted !== true;
@@ -4748,6 +4791,9 @@
 
   function jsonImportEndpointCount(parsed) {
     if (!isRecord(parsed)) return 0;
+    if (window.DevmanPostmanImport?.isPostmanCollection(parsed)) {
+      return window.DevmanPostmanImport.countPostmanRequests(parsed);
+    }
     if (Array.isArray(parsed.rows)) return parsed.rows.length;
     if (!Array.isArray(parsed.steps)) return 0;
     return parsed.steps.reduce((count, step) => {
@@ -4863,7 +4909,8 @@
       const appendSnapshot = importAction === JSON_IMPORT_ACTION.APPEND
         ? captureWorkspaceForAppend()
         : null;
-      const isSuite = Array.isArray(parsed.steps);
+      const isPostman = window.DevmanPostmanImport?.isPostmanCollection(parsed) === true;
+      const isSuite = Array.isArray(parsed.steps) || isPostman;
       const { rows, laneOrder, laneMeta, importedTokenCount, tokensOnly, swaggerSource } = importParsedJson(parsed);
       let importedRowCount = rows.length;
       let appendedRowId = null;
@@ -4895,7 +4942,7 @@
           : 'Token JSON imported');
       } else {
         toast(isSuite
-          ? `${importAction === JSON_IMPORT_ACTION.APPEND ? 'Added' : 'Imported'} suite (${importedRowCount} steps${tokenSummary})`
+          ? `${importAction === JSON_IMPORT_ACTION.APPEND ? 'Added' : 'Imported'} ${isPostman ? 'Postman collection' : 'suite'} (${importedRowCount} steps${tokenSummary})`
           : `${importAction === JSON_IMPORT_ACTION.APPEND ? 'Added' : 'Imported'} ${importedRowCount} rows${tokenSummary}`);
       }
     } catch (err) {
@@ -5535,7 +5582,7 @@
         laneOrder: state.laneOrder,
         laneMeta: state.laneMeta,
         swaggerSource: state.swaggerSource,
-        rows: state.rows.map(({ result, ...rest }) => rest),
+        rows: state.rows.map(({ result: _result, ...rest }) => rest),
       };
       downloadJson(`${el('suiteName').value || DEFAULT_PROJECT_NAME}.json`, data);
       toast('JSON exported with token values — store it securely');
@@ -5588,6 +5635,33 @@
       box.hidden = !box.hidden;
       toggle.textContent = box.hidden ? 'Show variables' : 'Hide variables';
     });
+  }
+
+  function bindIssueReporting() {
+    const reportLink = el('reportIssueLink');
+    if (!reportLink || !window.DevmanIssueReportUtils) return;
+
+    const syncReportUrl = () => {
+      const selectedTheme = localStorage.getItem(THEME_KEY) || 'auto';
+      const resolvedTheme = document.documentElement.getAttribute('data-resolved-theme') || 'unknown';
+      const appVersion = document.querySelector('meta[name="application-version"]')?.content || 'unknown';
+      const isLocalRuntime = ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
+      const diagnostics = {
+        'Devman API version': appVersion,
+        Runtime: isLocalRuntime ? 'Local' : 'Hosted',
+        Theme: `${selectedTheme[0].toUpperCase()}${selectedTheme.slice(1)} (${resolvedTheme})`,
+        Viewport: `${window.innerWidth} x ${window.innerHeight}`,
+        'Workspace endpoints': state.rows.length,
+        'Workspace groups': state.laneOrder.length,
+        'Swagger imported': state.swaggerSource ? 'Yes' : 'No',
+        Online: navigator.onLine ? 'Yes' : 'No',
+      };
+      reportLink.href = window.DevmanIssueReportUtils.buildIssueReportUrl(reportLink.href, diagnostics);
+    };
+
+    reportLink.addEventListener('pointerenter', syncReportUrl);
+    reportLink.addEventListener('focus', syncReportUrl);
+    reportLink.addEventListener('click', syncReportUrl);
   }
 
   function bindPageScrollButtons() {
@@ -5722,6 +5796,7 @@
     bindRunBar();
     bindActiveRunFollow();
     bindVarsPanel();
+    bindIssueReporting();
     bindPageScrollButtons();
     bindBottomDockMetrics();
     bindTokenCardDock();

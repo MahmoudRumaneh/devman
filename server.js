@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Zero-dependency local server for Devman API (plain Node.js, no npm install needed).
+// Local Node.js server for Devman API. Install package dependencies with npm ci first.
 //
 // Serves the static UI (public/) and exposes endpoints the page's JS calls
 // same-origin, so the browser never has to fight the target API's CORS policy:
@@ -21,6 +21,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { fetchWithNetworkRetry } = require('./lib/fetch-retry');
 const { importOpenApiFromUrl } = require('./lib/swagger-import');
+const { validateLocalProxyUrl } = require('./lib/proxy-security');
 const { fileNameWithExtension } = require('./public/file-name-utils');
 const {
   applyProxyErrorHeaders,
@@ -84,7 +85,12 @@ async function handleProxy(req, res) {
   }
 
   const method = (payload.method || 'GET').toUpperCase();
-  const url = payload.url || '';
+  let url;
+  try {
+    url = validateLocalProxyUrl(typeof payload.url === 'string' ? payload.url : '');
+  } catch (error) {
+    return sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
+  }
   const headers = normalizeHeaders(payload.headers);
   const bodyText = payload.body;
 
@@ -120,13 +126,14 @@ async function handleProxy(req, res) {
 async function handleProxyStream(req, res) {
   try {
     const payload = await readJsonBody(req);
+    const target = validateLocalProxyUrl(typeof payload.url === 'string' ? payload.url : '');
     const upstreamRequest = buildUpstreamRequest(payload);
     const started = Date.now();
     const controller = new AbortController();
     res.once('close', () => {
       if (!res.writableEnded) controller.abort();
     });
-    const { response: upstream, attempts } = await fetchWithNetworkRetry(payload.url || '', {
+    const { response: upstream, attempts } = await fetchWithNetworkRetry(target, {
       ...upstreamRequest,
       signal: AbortSignal.any([controller.signal, AbortSignal.timeout(300_000)]),
     });
@@ -181,34 +188,52 @@ async function handleSwaggerImport(req, res) {
   try {
     payload = await readJsonBody(req);
     const url = typeof payload.url === 'string' ? payload.url : '';
-    const imported = await importOpenApiFromUrl(url);
+    const imported = await importOpenApiFromUrl(url, { validateUrl: validateLocalProxyUrl });
     return sendJson(res, 200, imported);
   } catch (error) {
     return sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) });
   }
 }
 
-const server = http.createServer(async (req, res) => {
-  try {
-    if (req.method === 'POST' && req.url === '/api/proxy') return await handleProxy(req, res);
-    if (req.method === 'POST' && req.url === '/api/proxy-stream') return await handleProxyStream(req, res);
-    if (req.method === 'POST' && req.url === '/api/jq') return handleJq(req, res);
-    if (req.method === 'POST' && req.url === '/api/save-report') return await handleSaveReport(req, res);
-    if (req.method === 'POST' && req.url === '/api/swagger-import') return await handleSwaggerImport(req, res);
-    if (req.method === 'GET') return serveStatic(req, res);
-    return sendJson(res, 404, { error: 'not found' });
-  } catch (e) {
-    return sendJson(res, 500, { error: String(e.message || e) });
-  }
-});
+function createDevmanServer() {
+  return http.createServer(async (req, res) => {
+    try {
+      if (req.method === 'POST' && req.url === '/api/proxy') return await handleProxy(req, res);
+      if (req.method === 'POST' && req.url === '/api/proxy-stream') return await handleProxyStream(req, res);
+      if (req.method === 'POST' && req.url === '/api/jq') return handleJq(req, res);
+      if (req.method === 'POST' && req.url === '/api/save-report') return await handleSaveReport(req, res);
+      if (req.method === 'POST' && req.url === '/api/swagger-import') return await handleSwaggerImport(req, res);
+      if (req.method === 'GET') return serveStatic(req, res);
+      return sendJson(res, 404, { error: 'not found' });
+    } catch (error) {
+      return sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+}
 
-const port = Number(process.argv[2]) || 8787;
-fs.mkdirSync(REPORTS_DIR, { recursive: true });
-server.listen(port, '127.0.0.1', () => {
-  console.log(`Devman API running at http://127.0.0.1:${port}`);
-  console.log(`Reports saved to ${REPORTS_DIR}`);
-  const jqCheck = spawnSync('jq', ['--version']);
-  if (jqCheck.error) {
-    console.log('Note: jq not found on PATH — importing a full suite JSON (assert/capture) needs it. Manual endpoint rows work fine without it.');
-  }
-});
+function startLocalServer() {
+  const server = createDevmanServer();
+  const port = Number(process.argv[2]) || 8787;
+  fs.mkdirSync(REPORTS_DIR, { recursive: true });
+  server.on('error', (error) => {
+    if (error && error.code === 'EADDRINUSE') {
+      console.error(`Cannot start Devman API: port ${port} is already in use.`);
+    } else {
+      console.error(`Cannot start Devman API: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    process.exitCode = 1;
+  });
+  server.listen(port, '127.0.0.1', () => {
+    console.log(`Devman API running at http://127.0.0.1:${port}`);
+    console.log(`Reports saved to ${REPORTS_DIR}`);
+    const jqCheck = spawnSync('jq', ['--version']);
+    if (jqCheck.error) {
+      console.log('Note: jq not found on PATH — importing a full suite JSON (assert/capture) needs it. Manual endpoint rows work fine without it.');
+    }
+  });
+  return server;
+}
+
+if (require.main === module) startLocalServer();
+
+module.exports = { createDevmanServer, startLocalServer };

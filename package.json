@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "vercel dev",
+    "lint": "eslint . --max-warnings=0",
     "test": "node --test"
   },
   "engines": {
@@ -13,6 +14,11 @@
   },
   "dependencies": {
     "jq-wasm": "3.0.0-jq-1.8.2",
-    "yaml": "^2.8.1"
+    "yaml": "^2.9.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "eslint": "^9.39.5",
+    "globals": "^16.5.0"
   }
 }

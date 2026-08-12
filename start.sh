@@ -8,7 +8,12 @@ PORT="${PORT:-8787}"
 URL="http://127.0.0.1:$PORT"
 
 command -v node >/dev/null || {
-  echo "node is required (used only to run the local zero-dependency server)" >&2
+  echo "node is required. Run npm ci once before starting Devman API." >&2
+  exit 1
+}
+
+node -e "require.resolve('yaml')" >/dev/null 2>&1 || {
+  echo "dependencies are missing. Run npm ci before starting Devman API." >&2
   exit 1
 }
 
