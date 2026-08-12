@@ -3353,7 +3353,7 @@
     const wrap = document.createElement('div');
     wrap.className = 'request-card';
     wrap.dataset.rowId = row.id;
-    wrap.classList.toggle('has-result-error', row.result?.state === 'fail' || row.result?.state === 'error');
+    wrap.classList.toggle('has-result-error', resultHasHttpError(row));
     if (row.id === highlightedFailureRowId) wrap.classList.add('run-failure-focus');
     wireRowDrop(wrap, row);
 
@@ -3889,6 +3889,17 @@
     try { return JSON.stringify(JSON.parse(raw), null, 2); } catch (_) { return String(raw ?? ''); }
   }
 
+  function resultHttpStatusPassed(row) {
+    const result = row.result;
+    return Number.isInteger(result?.status) && result.status > 0 && statusMatches(result.status, row.expect);
+  }
+
+  function resultHasHttpError(row) {
+    const result = row.result;
+    if (!result || result.state === 'pending' || result.state === 'skipped') return false;
+    return result.state === 'error' || !resultHttpStatusPassed(row);
+  }
+
   function buildResultBadge(row) {
     const container = document.createElement('div');
     container.className = 'result-stack';
@@ -3906,7 +3917,7 @@
     } else if (r.state === 'skipped') {
       badge.className = 'badge idle';
       badge.textContent = 'skipped';
-    } else if (r.state === 'pass') {
+    } else if (r.state === 'pass' || (r.state === 'fail' && resultHttpStatusPassed(row))) {
       badge.className = 'badge pass';
       const retried = r.attempts > 1 ? ' ↻' : '';
       badge.textContent = `✓ ${r.status} · ${r.ms}ms${retried}`;
@@ -3920,7 +3931,10 @@
       badge.className = 'badge fail';
       badge.textContent = `✕ ${r.status}`;
     }
-    badge.title = badge.textContent;
+    const assertionIssue = r?.assertionFailure || r?.assertionError;
+    badge.title = assertionIssue && resultHttpStatusPassed(row)
+      ? `${badge.textContent} — HTTP status matched; response assertions failed`
+      : badge.textContent;
     container.appendChild(badge);
 
     const hasInspectableResponse = r && r.state !== 'skipped' &&
@@ -3958,7 +3972,7 @@
 
     const rowEl = document.querySelector(`[data-row-id="${row.id}"]`);
     if (!rowEl) return;
-    rowEl.classList.toggle('has-result-error', row.result?.state === 'fail' || row.result?.state === 'error');
+    rowEl.classList.toggle('has-result-error', resultHasHttpError(row));
     const resultCell = rowEl.querySelector('.result-cell');
     resultCell.innerHTML = '';
     resultCell.appendChild(buildResultBadge(row));
