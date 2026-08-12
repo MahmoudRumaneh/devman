@@ -23,13 +23,13 @@ test('buildIssueReportBody creates a structured report with diagnostics and a pr
 
 test('buildIssueReportUrl safely encodes the issue title and body', () => {
   const reportUrl = buildIssueReportUrl(
-    'https://github.com/MahmoudRumaneh/api-tool/issues/new',
+    'https://github.com/MahmoudRumaneh/devman/issues/new',
     { Theme: 'Auto (dark)', Viewport: '390 x 844' },
   );
   const parsed = new URL(reportUrl);
 
   assert.equal(parsed.origin, 'https://github.com');
-  assert.equal(parsed.pathname, '/MahmoudRumaneh/api-tool/issues/new');
+  assert.equal(parsed.pathname, '/MahmoudRumaneh/devman/issues/new');
   assert.equal(parsed.searchParams.get('title'), '[Bug] ');
   assert.match(parsed.searchParams.get('body'), /- Theme: Auto \(dark\)/);
   assert.match(parsed.searchParams.get('body'), /- Viewport: 390 x 844/);
