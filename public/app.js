@@ -2587,9 +2587,16 @@
       const assertRan = row.result?.state === 'pass' || row.result?.state === 'fail';
       const assertIssue = row.result?.assertionFailure || row.result?.assertionError;
       const label = `${assertions.length} assert${assertions.length > 1 ? 's' : ''}`;
-      bits.push(assertRan
-        ? { text: assertIssue ? `${label} · failed` : `${label} · passed`, variant: assertIssue ? 'is-assert-fail' : 'is-assert-pass' }
-        : label);
+      if (!assertRan) {
+        bits.push(label);
+      } else if (assertIssue && resultHttpStatusPassed(row)) {
+        bits.push({ text: `${label} · review`, variant: 'is-assert-review' });
+      } else {
+        bits.push({
+          text: assertIssue ? `${label} · failed` : `${label} · passed`,
+          variant: assertIssue ? 'is-assert-fail' : 'is-assert-pass',
+        });
+      }
     }
     if (row.result?.assertionWarnings?.length) bits.push('query fallback accepted');
     if (row.capture && Object.keys(row.capture).length) bits.push(`captures: ${Object.keys(row.capture).join(', ')}`);
@@ -2604,6 +2611,10 @@
         chip.title = `Failing assertion: ${row.result.assertionFailure}`;
       } else if (isTagged && bit.variant === 'is-assert-fail' && row.result?.assertionError) {
         chip.title = `Assertion evaluator error: ${row.result.assertionError}`;
+      } else if (isTagged && bit.variant === 'is-assert-review' && row.result?.assertionFailure) {
+        chip.title = `HTTP passed. Review assertion: ${row.result.assertionFailure}`;
+      } else if (isTagged && bit.variant === 'is-assert-review' && row.result?.assertionError) {
+        chip.title = `HTTP passed. Assertion evaluator unavailable: ${row.result.assertionError}`;
       }
       return chip;
     });
@@ -3934,7 +3945,7 @@
     }
     const assertionIssue = r?.assertionFailure || r?.assertionError;
     badge.title = assertionIssue && resultHttpStatusPassed(row)
-      ? `${badge.textContent} — HTTP status matched; response assertions failed`
+      ? `${badge.textContent} — HTTP status matched; response assertions need review`
       : badge.textContent;
     container.appendChild(badge);
 
@@ -4386,14 +4397,11 @@
       }
     }
 
-    // A test passes only when both its HTTP expectation and every jq assertion pass.
-    // Assertion evaluator errors are kept separate from ordinary false expressions so the
-    // response panel can explain whether the API or the assertion itself needs attention.
+    // Match Postman's request-status presentation: the endpoint outcome is determined by
+    // the HTTP expectation. Response assertions remain visible as non-blocking review notes.
     const statusPassed = status > 0 && expectOk;
-    const assertionsPassed = !assertionFailure && !assertionError;
-    const requestPassed = statusPassed && assertionsPassed;
 
-    if (requestPassed) {
+    if (statusPassed) {
       for (const [k, filterRaw] of Object.entries(row.capture || {})) {
         const r = await callJq('capture', filterRaw, fetched.body);
         if (r.ok && r.value) {
@@ -4704,8 +4712,8 @@
           const attempts = r.attempts > 1 ? `, ${r.attempts} attempts` : '';
           lines.push(`\`${row.method} ${r.reqUrl}\` — status: ${r.status}, ${r.ms}ms${attempts}`);
           lines.push('');
-          if (r.assertionFailure) lines.push(`_Assert failed (status still matched expectation): \`${r.assertionFailure}\`_\n`);
-          if (r.assertionError) lines.push(`_Assert evaluator error (status still matched expectation): ${r.assertionError}_\n`);
+          if (r.assertionFailure) lines.push(`_Assertion review (HTTP status matched): \`${r.assertionFailure}\`_\n`);
+          if (r.assertionError) lines.push(`_Assertion evaluator unavailable (HTTP status matched): ${r.assertionError}_\n`);
           if (r.reqBody) {
             lines.push('**Request body**');
             lines.push('```json');

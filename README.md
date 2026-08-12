@@ -28,7 +28,7 @@ Devman API keeps that complete flow in one place. Requests run sequentially, val
 - Reuse values with `${VARIABLE_NAME}` placeholders and jq-based response captures.
 - Manage multiple bearer-token profiles and inspect JWT metadata without leaving the page.
 - Send raw JSON, multipart form data, binary files, custom headers, and cookies.
-- Validate expected HTTP statuses and jq assertions; either kind of mismatch fails the test.
+- Validate expected HTTP statuses and review jq response checks without turning a successful HTTP response into a failed request.
 - Search, reorder, duplicate, rename, collapse, and selectively run endpoint groups.
 - Retry transient network and server failures automatically.
 - Import/export reusable JSON suites and download run results as Markdown reports.
@@ -153,7 +153,7 @@ Important fields:
 | `stage` | Groups requests and controls execution order. |
 | `auth_var` | Names the variable used as the bearer token. |
 | `expect_status` | Sets the expected HTTP status code. |
-| `assert` | Runs one jq expression, or an array of expressions, against the JSON response. |
+| `assert` | Runs one jq expression, or an array of expressions, and reports mismatches as non-blocking review notes. |
 | `capture` | Maps variable names to jq filters. Captured values are available to later steps. |
 | `continue_on_fail` | Allows later requests to continue after this request fails. |
 | `foreach` | Expands one step across a list of supplied values. |

@@ -324,6 +324,11 @@ input:focus, textarea:focus, select:focus {
   color: var(--red);
   border-color: transparent;
 }
+.request-chip.is-assert-review {
+  background: var(--amber-bg);
+  color: var(--amber);
+  border-color: transparent;
+}
 .request-extra {
   grid-column: 2;
   display: grid;
