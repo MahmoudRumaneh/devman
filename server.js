@@ -68,6 +68,13 @@ function applyAgentCors(req, res) {
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   res.setHeader('Access-Control-Allow-Private-Network', 'true');
+  // Cross-origin fetch() can only read response headers listed here (the CORS-safelisted
+  // ones aside). Without this, callProxy's own `X-Devman-Proxy: upstream` check always
+  // reads null and treats every successful upstream response as a failure.
+  res.setHeader(
+    'Access-Control-Expose-Headers',
+    'X-Devman-Proxy, X-Devman-Upstream-Status, X-Devman-Attempts, X-Devman-Elapsed-Ms, X-Devman-Content-Length, Content-Disposition',
+  );
 }
 
 function sendJson(res, status, payload) {
