@@ -4273,6 +4273,99 @@
     return raw || `Proxy returned HTTP ${response.status}`;
   }
 
+  function isLocalTarget(rawUrl) {
+    let url;
+    try {
+      url = new URL(rawUrl);
+    } catch (_) {
+      return false;
+    }
+    const hostname = url.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+    if (hostname === 'localhost' || hostname.endsWith('.localhost') || hostname.endsWith('.local')) return true;
+    if (hostname === '::1') return true;
+    const ipv4 = hostname.match(/^(\d{1,3})\.(\d{1,3})\.\d{1,3}\.\d{1,3}$/);
+    if (!ipv4) return false;
+    const a = Number(ipv4[1]);
+    const b = Number(ipv4[2]);
+    return a === 127 || a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 169 && b === 254);
+  }
+
+  // Deployed proxy targets (api/proxy-stream.js) reject localhost/private hosts as SSRF
+  // protection — that's the server's own localhost anyway, never the browser's. Postman-style
+  // local access instead runs the request straight from the browser, bypassing the proxy hop.
+  async function callLocalDirect(row, request) {
+    const bodyless = row.method === 'GET' || row.method === 'HEAD';
+    let body;
+    if (!bodyless) {
+      if (row.bodyMode === BODY_MODE.BINARY) {
+        const file = getSelectedFile(row);
+        if (!file) throw new Error('Select the binary request file before running this endpoint');
+        body = file;
+      } else if (row.bodyMode === BODY_MODE.MULTIPART) {
+        if (!row.formData.length) throw new Error('Add at least one multipart form field before running this endpoint');
+        body = new FormData();
+        for (const part of row.formData) {
+          if (!part.name.trim()) throw new Error('Every multipart form field needs a name');
+          if (part.kind === FORM_PART_KIND.FILE) {
+            const file = getSelectedFile(row, part.id);
+            if (!file) throw new Error(`Select a file for the “${part.name}” field before running this endpoint`);
+            body.append(part.name, file, file.name);
+          } else {
+            body.append(part.name, subst(part.value));
+          }
+        }
+      } else if (request.body) {
+        body = request.body;
+      }
+    }
+
+    const maxAttempts = NETWORK_RETRY_METHODS.has(row.method) ? PROXY_MAX_ATTEMPTS : 1;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      const started = performance.now();
+      try {
+        const response = await fetch(request.url, {
+          method: row.method,
+          headers: request.headers,
+          body,
+          signal: activeRunController?.signal,
+        });
+        const contentType = response.headers.get('content-type') || '';
+        const contentDisposition = response.headers.get('content-disposition') || '';
+        const responseHeaders = Object.fromEntries(response.headers.entries());
+        const textResponse = isTextResponse(contentType, contentDisposition);
+        const fileName = responseFileName(contentDisposition, request.url, contentType);
+        const blob = await response.blob();
+        const responseBody = textResponse ? (await blob.text()).slice(0, MAX_RESPONSE_PREVIEW_CHARS) : '';
+        return {
+          status: response.status,
+          ms: Math.round(performance.now() - started),
+          attempts: attempt,
+          body: responseBody,
+          responseBlob: blob,
+          responseBytes: blob.size,
+          responseType: contentType || 'application/octet-stream',
+          responseFileName: fileName,
+          responseIsText: textResponse,
+          responseTruncated: textResponse && responseBody.length >= MAX_RESPONSE_PREVIEW_CHARS,
+          responseHeaders,
+          cancelled: activeRunController?.signal.aborted === true,
+        };
+      } catch (error) {
+        if (activeRunController?.signal.aborted) {
+          const stoppedError = new Error('Run stopped by user');
+          stoppedError.attempts = attempt;
+          throw stoppedError;
+        }
+        if (attempt === maxAttempts) {
+          throw new Error(`Could not reach ${request.url} directly from your browser (${errorMessage(error)}). Local and private targets run straight from the browser — confirm the server is running and, if the origins differ, that it sends CORS headers allowing this page.`);
+        }
+        await wait(PROXY_RETRY_DELAY_MS * (2 ** (attempt - 1)));
+      }
+    }
+    throw new Error('Local request failed');
+  }
+
   async function callProxy(row, payload) {
     const canRetry = NETWORK_RETRY_METHODS.has(payload.method);
     const maxAttempts = canRetry ? PROXY_MAX_ATTEMPTS : 1;
@@ -4391,8 +4484,13 @@
     const request = buildRequestSnapshot(row);
 
     try {
-      const payload = await buildProxyPayload(row, request);
-      const output = await callProxy(row, payload);
+      // The local dev server's own proxy (server.js) already allows localhost/private
+      // targets with no CORS involved (server-to-server). Only the deployed app's proxy
+      // rejects them (SSRF guard) — that's the one case where a direct browser fetch helps.
+      const isHostedRuntime = !['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
+      const output = (isHostedRuntime && isLocalTarget(request.url))
+        ? await callLocalDirect(row, request)
+        : await callProxy(row, await buildProxyPayload(row, request));
       return {
         status: output.status,
         ms: output.ms,
