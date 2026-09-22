@@ -48,6 +48,28 @@ const IMMUTABLE_ASSET_EXTENSIONS = new Set(['.css', '.ico', '.js', '.png']);
 const IMMUTABLE_CACHE_CONTROL = 'public, max-age=31536000, immutable';
 const REVALIDATE_CACHE_CONTROL = 'public, max-age=0, must-revalidate';
 
+// Lets the deployed app (running in a browser, subject to CORS) call this local,
+// SSRF-permissive proxy directly as its own "local agent" for localhost/private
+// targets — same role Postman's desktop agent plays. Never reflect an arbitrary
+// Origin here: this proxy fetches whatever URL it's given, so opening it to any
+// site would let that site relay requests into the user's LAN through the browser.
+const AGENT_ALLOWED_ORIGINS = new Set(
+  (process.env.DEVMAN_AGENT_ORIGIN || 'https://devman-api.com')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean),
+);
+
+function applyAgentCors(req, res) {
+  const origin = req.headers.origin;
+  if (!origin || !AGENT_ALLOWED_ORIGINS.has(origin)) return;
+  res.setHeader('Access-Control-Allow-Origin', origin);
+  res.setHeader('Vary', 'Origin');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Private-Network', 'true');
+}
+
 function sendJson(res, status, payload) {
   const body = Buffer.from(JSON.stringify(payload));
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Content-Length': body.length });
@@ -210,6 +232,11 @@ async function handleSwaggerImport(req, res) {
 function createDevmanServer() {
   return http.createServer(async (req, res) => {
     try {
+      applyAgentCors(req, res);
+      if (req.method === 'OPTIONS') {
+        res.writeHead(204);
+        return res.end();
+      }
       if (req.method === 'POST' && req.url === '/api/proxy') return await handleProxy(req, res);
       if (req.method === 'POST' && req.url === '/api/proxy-stream') return await handleProxyStream(req, res);
       if (req.method === 'POST' && req.url === '/api/jq') return handleJq(req, res);

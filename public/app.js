@@ -15,6 +15,10 @@
   const RETRYABLE_PROXY_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
   const PROXY_MAX_ATTEMPTS = 3;
   const PROXY_RETRY_DELAY_MS = 250;
+  // `./start.sh` binds the local agent to this fixed port by default (see README).
+  // Running it once lets the hosted app reach localhost/private targets for every
+  // project with no per-target CORS setup — the agent proxies server-to-server.
+  const LOCAL_AGENT_PROXY_URL = 'http://127.0.0.1:8787/api/proxy-stream';
   const SEARCH_RENDER_DELAY_MS = 90;
   const SEARCH_RESULT_BATCH_SIZE = 40;
   const SEARCH_RESULT_MOBILE_BATCH_SIZE = 20;
@@ -4358,7 +4362,7 @@
           throw stoppedError;
         }
         if (attempt === maxAttempts) {
-          throw new Error(`Could not reach ${request.url} directly from your browser (${errorMessage(error)}). Local and private targets run straight from the browser — confirm the server is running and, if the origins differ, that it sends CORS headers allowing this page.`);
+          throw new Error(`Could not reach ${request.url} directly from your browser (${errorMessage(error)}). Run DevMan's local agent (./start.sh) once to reach local and private targets from any project with no CORS setup, or allow ${window.location.origin} in that server's own CORS policy.`);
         }
         await wait(PROXY_RETRY_DELAY_MS * (2 ** (attempt - 1)));
       }
@@ -4366,14 +4370,29 @@
     throw new Error('Local request failed');
   }
 
-  async function callProxy(row, payload) {
+  // Tries the local agent (`./start.sh`, unguarded on 127.0.0.1 for exactly this
+  // purpose) first, so hosted users get zero-CORS-setup access to any project's
+  // localhost/private target. Falls back to a raw browser fetch when the agent
+  // isn't running, which still works if that target's own CORS allows this origin.
+  async function callLocalTarget(row, request) {
+    try {
+      // A single attempt: a not-running agent is connection-refused immediately and
+      // won't improve on retry, so don't make the user wait through backoff for it.
+      return await callProxy(row, await buildProxyPayload(row, request), LOCAL_AGENT_PROXY_URL, { maxAttempts: 1 });
+    } catch (agentError) {
+      if (activeRunController?.signal.aborted) throw agentError;
+      return await callLocalDirect(row, request);
+    }
+  }
+
+  async function callProxy(row, payload, endpoint = '/api/proxy-stream', { maxAttempts: maxAttemptsOverride } = {}) {
     const canRetry = NETWORK_RETRY_METHODS.has(payload.method);
-    const maxAttempts = canRetry ? PROXY_MAX_ATTEMPTS : 1;
+    const maxAttempts = maxAttemptsOverride ?? (canRetry ? PROXY_MAX_ATTEMPTS : 1);
 
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       try {
         const started = performance.now();
-        const response = await fetch('/api/proxy-stream', {
+        const response = await fetch(endpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
@@ -4486,10 +4505,10 @@
     try {
       // The local dev server's own proxy (server.js) already allows localhost/private
       // targets with no CORS involved (server-to-server). Only the deployed app's proxy
-      // rejects them (SSRF guard) — that's the one case where a direct browser fetch helps.
+      // rejects them (SSRF guard) — that's the one case that needs a different path.
       const isHostedRuntime = !['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
       const output = (isHostedRuntime && isLocalTarget(request.url))
-        ? await callLocalDirect(row, request)
+        ? await callLocalTarget(row, request)
         : await callProxy(row, await buildProxyPayload(row, request));
       return {
         status: output.status,
