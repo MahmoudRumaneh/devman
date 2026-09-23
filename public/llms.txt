@@ -16,6 +16,12 @@ Devman API is a browser workspace for testing REST APIs and multi-step API workf
 ## Pages
 
 - [Devman API](https://devman-api.com/): the REST API testing workspace (single-page app)
+- [Free API testing tool](https://devman-api.com/api-testing): the general no-install, no-account pitch
+- [Automated API testing](https://devman-api.com/automated-api-testing): staged workflows, retries, jq assertions, foreach
+- [OpenAPI testing](https://devman-api.com/openapi-testing): OpenAPI 3.x import, server/security mapping
+- [Swagger testing](https://devman-api.com/swagger-testing): Swagger 2.0 and Swagger UI page discovery
+- [Devman API vs Postman](https://devman-api.com/postman-alternative): objective feature-by-feature comparison
+- [cURL API testing](https://devman-api.com/curl-api-testing): pasting Bash/PowerShell/CMD cURL commands
 - [README](https://github.com/MahmoudRumaneh/devman/blob/main/README.md): setup, suite JSON format, and import compatibility details
 - [Security and privacy](https://github.com/MahmoudRumaneh/devman/blob/main/SECURITY.md): vulnerability reporting policy
 - [License](https://github.com/MahmoudRumaneh/devman/blob/main/LICENSE): MIT License

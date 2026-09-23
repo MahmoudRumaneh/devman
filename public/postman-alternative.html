@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<script>
+(function () {
+  try {
+    var saved = localStorage.getItem('devmanApi.theme') || localStorage.getItem('apiTestStudio.theme') || 'auto';
+    var root = document.documentElement;
+    if (saved === 'auto') root.removeAttribute('data-theme'); else root.setAttribute('data-theme', saved);
+    var resolved = saved === 'auto' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : saved;
+    root.setAttribute('data-resolved-theme', resolved);
+  } catch (e) {}
+})();
+</script>
+<meta name="application-name" content="Devman API" />
+<meta name="author" content="Mahmoud Rumaneh" />
+<meta name="description" content="Devman API vs Postman: an objective, feature-by-feature comparison covering OpenAPI/Postman/cURL import, request chaining, self-hosting, pricing, and AI test generation." />
+<meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
+<meta name="color-scheme" content="light dark" />
+<meta name="theme-color" content="#f5f6f8" media="(prefers-color-scheme: light)" />
+<meta name="theme-color" content="#0f141b" media="(prefers-color-scheme: dark)" />
+<link rel="canonical" href="https://devman-api.com/postman-alternative" />
+<link rel="alternate" hreflang="en" href="https://devman-api.com/postman-alternative" />
+<link rel="alternate" hreflang="x-default" href="https://devman-api.com/postman-alternative" />
+<link rel="sitemap" type="application/xml" href="https://devman-api.com/sitemap.xml" />
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="Devman API" />
+<meta property="og:locale" content="en_US" />
+<meta property="og:url" content="https://devman-api.com/postman-alternative" />
+<meta property="og:title" content="Devman API vs Postman: Feature Comparison" />
+<meta property="og:description" content="An objective, feature-by-feature comparison: OpenAPI/Postman/cURL import, request chaining, self-hosting, pricing, and AI test generation." />
+<meta property="og:image" content="https://devman-api.com/devman-api-logo.png" />
+<meta property="og:image:secure_url" content="https://devman-api.com/devman-api-logo.png" />
+<meta property="og:image:type" content="image/png" />
+<meta property="og:image:width" content="836" />
+<meta property="og:image:height" content="632" />
+<meta property="og:image:alt" content="Devman API online API testing workspace" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="Devman API vs Postman: Feature Comparison" />
+<meta name="twitter:description" content="An objective, feature-by-feature comparison: OpenAPI/Postman/cURL import, request chaining, self-hosting, pricing, and AI test generation." />
+<meta name="twitter:image" content="https://devman-api.com/devman-api-logo.png" />
+<meta name="twitter:image:alt" content="Devman API online API testing workspace" />
+<title>Devman API vs Postman: Feature Comparison</title>
+<link rel="icon" href="/favicon.ico?v=1.0.5" sizes="any" />
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png?v=1.0.5" />
+<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png?v=1.0.5" />
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v=1.0.5" />
+<link rel="stylesheet" href="style.css?v=1.0.5" />
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "WebPage",
+      "@id": "https://devman-api.com/postman-alternative#webpage",
+      "url": "https://devman-api.com/postman-alternative",
+      "name": "Devman API vs Postman: Feature Comparison",
+      "description": "An objective, feature-by-feature comparison: OpenAPI/Postman/cURL import, request chaining, self-hosting, pricing, and AI test generation.",
+      "isPartOf": { "@id": "https://devman-api.com/#website" },
+      "inLanguage": "en"
+    },
+    {
+      "@type": "BreadcrumbList",
+      "@id": "https://devman-api.com/postman-alternative#breadcrumb",
+      "itemListElement": [
+        { "@type": "ListItem", "position": 1, "name": "Devman API", "item": "https://devman-api.com/" },
+        { "@type": "ListItem", "position": 2, "name": "Postman alternative", "item": "https://devman-api.com/postman-alternative" }
+      ]
+    },
+    {
+      "@type": "FAQPage",
+      "@id": "https://devman-api.com/postman-alternative#faq",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "How is Devman API different from Postman?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Devman API is a free, open-source (MIT) browser tool with no account and no install. Postman is a closed-source app that requires a free account to use, and its Team plan costs $19 per user per month for collaboration." }
+        },
+        {
+          "@type": "Question",
+          "name": "Does Devman API import Postman collections?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Yes. Devman API imports Postman Collection v2.0 and v2.1 files, including nested folders, collection variables, bearer tokens, and raw, URL-encoded, multipart, and binary bodies." }
+        },
+        {
+          "@type": "Question",
+          "name": "Can I self-host instead of using Postman's cloud?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Yes. Devman API can be self-hosted locally with Node.js or deployed to your own Vercel project. Postman does not offer a self-hosted or on-premise version of its app." }
+        },
+        {
+          "@type": "Question",
+          "name": "Does Devman API have AI test generation like Postman's Postbot?",
+          "acceptedAnswer": { "@type": "Answer", "text": "No. Postman's Postbot generates JavaScript test scripts from natural-language prompts. Devman API does not have an AI test generator; it uses jq expressions for assertions and captures instead." }
+        },
+        {
+          "@type": "Question",
+          "name": "Is Devman API really free, with no team-plan paywall?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Yes. Devman API has no paid tier. Postman's Free plan is solo-only (one user); collaborating with a team requires the $19-per-user-per-month Team plan." }
+        }
+      ]
+    }
+  ]
+}
+</script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="/">
+        <img class="brand-logo" src="devman-api-logo.png?v=1.0.5" alt="Devman API logo" width="53" height="40" fetchpriority="high" />
+        <div>
+          <h1>Devman API</h1>
+          <p>Free, open-source REST API testing</p>
+        </div>
+      </a>
+      <div class="topbar-actions">
+        <a class="btn primary" href="/#api-workspace">Open the app</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="landing-main">
+    <nav class="landing-nav" aria-label="Breadcrumb">
+      <a href="/">Devman API</a>
+      <span aria-hidden="true">/</span>
+      <span>Postman alternative</span>
+    </nav>
+
+    <section class="seo-hero card" aria-labelledby="pageHeroTitle">
+      <div class="seo-hero-copy">
+        <p class="seo-eyebrow">Objective comparison</p>
+        <h1 id="pageHeroTitle">Devman API vs Postman</h1>
+        <p>Devman API is a free, open-source REST API client that runs in your browser, with no install and no account. This page compares it to Postman feature by feature, including the places Postman is ahead, so you can pick the right tool for your workflow.</p>
+      </div>
+      <a class="btn primary seo-hero-action" href="/#api-workspace">Start testing free</a>
+    </section>
+
+    <section class="landing-section">
+      <h2>Feature comparison</h2>
+      <p>Verified against Postman's own pricing and product pages as of September 2026. Sources are linked below the table.</p>
+      <div class="seo-compare-wrap">
+        <div class="seo-compare-scroll">
+          <table class="seo-compare-table">
+            <thead>
+              <tr>
+                <th scope="col">Capability</th>
+                <th scope="col">Devman API</th>
+                <th scope="col">Postman</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td>OpenAPI / Swagger import</td><td>✓</td><td>✓</td></tr>
+              <tr><td>Postman collection import</td><td>✓</td><td>✓ (native)</td></tr>
+              <tr><td>cURL import</td><td>✓</td><td>✓</td></tr>
+              <tr><td>Sequential / staged workflows</td><td>✓ (staged groups)</td><td>✓ (Collection Runner, Flows)</td></tr>
+              <tr><td>Response capture &amp; chaining</td><td>✓ (jq expressions)</td><td>✓ (JavaScript scripts)</td></tr>
+              <tr><td>Assertion style</td><td>jq expressions</td><td>JavaScript test scripts</td></tr>
+              <tr><td>AI-generated tests</td><td>— (not built)</td><td>✓ (Postbot)</td></tr>
+              <tr><td>Markdown test reports</td><td>✓ (built in)</td><td>— (Newman: JSON/JUnit/HTML reporters)</td></tr>
+              <tr><td>Account required</td><td>No</td><td>Yes, a free account</td></tr>
+              <tr><td>Install required</td><td>No (browser)</td><td>Yes (desktop app)</td></tr>
+              <tr><td>Self-hosted / on-premise</td><td>✓ (Node.js or Vercel)</td><td>— (no self-hosted option)</td></tr>
+              <tr><td>Open source</td><td>✓ (MIT, full app)</td><td>— (app is closed source; Newman CLI runner is open source)</td></tr>
+              <tr><td>Free plan</td><td>Unlimited, no account</td><td>$0/mo, 1 user, no team collaboration</td></tr>
+              <tr><td>Team collaboration price</td><td>N/A (self-hosted or local)</td><td>$19/user/month (Team plan, billed annually)</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <p class="landing-source-note">As of September 2026. Sources: <a href="https://www.postman.com/pricing/" target="_blank" rel="noopener noreferrer">postman.com/pricing</a>, <a href="https://github.com/postmanlabs/newman" target="_blank" rel="noopener noreferrer">github.com/postmanlabs/newman</a>, <a href="https://blog.postman.com/postbot-is-now-in-open-beta/" target="_blank" rel="noopener noreferrer">Postman Postbot announcement</a>.</p>
+    </section>
+
+    <section class="landing-section">
+      <h2>When Postman fits better</h2>
+      <p>Postman is the better choice for large teams that want a hosted cloud workspace, AI-assisted test generation (Postbot), a mature visual Flows canvas, or a mock-server and API-monitoring platform built into the same product. Devman API doesn't try to replace any of that.</p>
+    </section>
+
+    <section class="landing-section">
+      <h2>When Devman API fits better</h2>
+      <p>Devman API fits when you want a free, open-source, no-account tool for testing OpenAPI/Swagger/Postman/cURL requests and chaining them into a sequential workflow with jq assertions, without installing a desktop app or paying for team seats. It's also a fit when you need to self-host the whole tool on your own infrastructure.</p>
+    </section>
+
+    <section class="landing-section seo-faq" aria-labelledby="pageFaqTitle">
+      <h2 id="pageFaqTitle">Frequently asked questions</h2>
+      <div class="api-faq-list">
+        <details>
+          <summary>How is Devman API different from Postman?</summary>
+          <p>Devman API is a free, open-source (MIT) browser tool with no account and no install. Postman is a closed-source app that requires a free account to use, and its Team plan costs $19 per user per month for collaboration.</p>
+        </details>
+        <details>
+          <summary>Does Devman API import Postman collections?</summary>
+          <p>Yes. Devman API imports Postman Collection v2.0 and v2.1 files, including nested folders, collection variables, bearer tokens, and raw, URL-encoded, multipart, and binary bodies.</p>
+        </details>
+        <details>
+          <summary>Can I self-host instead of using Postman's cloud?</summary>
+          <p>Yes. Devman API can be self-hosted locally with Node.js or deployed to your own Vercel project. Postman does not offer a self-hosted or on-premise version of its app.</p>
+        </details>
+        <details>
+          <summary>Does Devman API have AI test generation like Postman's Postbot?</summary>
+          <p>No. Postman's Postbot generates JavaScript test scripts from natural-language prompts. Devman API does not have an AI test generator; it uses jq expressions for assertions and captures instead.</p>
+        </details>
+        <details>
+          <summary>Is Devman API really free, with no team-plan paywall?</summary>
+          <p>Yes. Devman API has no paid tier. Postman's Free plan is solo-only (one user); collaborating with a team requires the $19-per-user-per-month Team plan.</p>
+        </details>
+      </div>
+    </section>
+
+    <section class="landing-section">
+      <h2>Explore more</h2>
+      <nav class="landing-related" aria-label="Related pages">
+        <a href="/">Home</a>
+        <a href="/api-testing">Free API testing tool</a>
+        <a href="/automated-api-testing">Automated API testing</a>
+        <a href="/openapi-testing">OpenAPI testing</a>
+        <a href="/swagger-testing">Swagger testing</a>
+        <a href="/curl-api-testing">cURL API testing</a>
+      </nav>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="footer-credit">
+      <span>Developed by</span>
+      <a href="https://mhmoud.life" target="_blank" rel="noopener noreferrer">Mahmoud Rumaneh <span aria-hidden="true">↗</span></a>
+    </div>
+    <nav class="footer-links" aria-label="Project links">
+      <a href="/#api-testing-faq">API guide &amp; FAQ</a>
+      <a href="/#why-devman">Why Devman API</a>
+      <a href="https://github.com/MahmoudRumaneh/devman" target="_blank" rel="noopener noreferrer">GitHub <span aria-hidden="true">↗</span></a>
+      <a class="report-issue-link" href="https://github.com/MahmoudRumaneh/devman/issues/new" target="_blank" rel="noopener noreferrer">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8v4M12 16h.01"></path><circle cx="12" cy="12" r="9"></circle></svg>
+        <span>Report an issue</span>
+      </a>
+    </nav>
+  </footer>
+</body>
+</html>

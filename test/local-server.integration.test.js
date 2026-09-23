@@ -136,3 +136,25 @@ test('local server imports private OpenAPI, proxies JSON, streams binary, and se
   assert.equal(binaryResponse.headers.get('content-disposition'), 'attachment; filename="fixture.bin"');
   assert.deepEqual(Buffer.from(await binaryResponse.arrayBuffer()), Buffer.from([0, 1, 2, 3, 255]));
 });
+
+test('local server resolves landing-page clean URLs and still 404s unknown paths', async (context) => {
+  const devmanServer = createDevmanServer();
+  const devmanOrigin = await listen(devmanServer);
+  context.after(async () => {
+    await close(devmanServer);
+  });
+
+  const cleanUrl = await fetch(`${devmanOrigin}/postman-alternative`);
+  assert.equal(cleanUrl.status, 200);
+  assert.match(cleanUrl.headers.get('content-type'), /^text\/html/);
+  assert.match(await cleanUrl.text(), /<title>Devman API vs Postman: Feature Comparison<\/title>/);
+
+  const directHtml = await fetch(`${devmanOrigin}/postman-alternative.html`);
+  assert.equal(directHtml.status, 200);
+
+  const unknownExtensionless = await fetch(`${devmanOrigin}/not-a-real-page`);
+  assert.equal(unknownExtensionless.status, 404);
+
+  const unknownWithExtension = await fetch(`${devmanOrigin}/not-a-real-page.css`);
+  assert.equal(unknownWithExtension.status, 404);
+});

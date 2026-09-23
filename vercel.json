@@ -6,6 +6,14 @@
       "maxDuration": 300
     }
   },
+  "rewrites": [
+    { "source": "/api-testing", "destination": "/api-testing.html" },
+    { "source": "/automated-api-testing", "destination": "/automated-api-testing.html" },
+    { "source": "/openapi-testing", "destination": "/openapi-testing.html" },
+    { "source": "/swagger-testing", "destination": "/swagger-testing.html" },
+    { "source": "/postman-alternative", "destination": "/postman-alternative.html" },
+    { "source": "/curl-api-testing", "destination": "/curl-api-testing.html" }
+  ],
   "headers": [
     {
       "source": "/(.*)",

@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<script>
+(function () {
+  try {
+    var saved = localStorage.getItem('devmanApi.theme') || localStorage.getItem('apiTestStudio.theme') || 'auto';
+    var root = document.documentElement;
+    if (saved === 'auto') root.removeAttribute('data-theme'); else root.setAttribute('data-theme', saved);
+    var resolved = saved === 'auto' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : saved;
+    root.setAttribute('data-resolved-theme', resolved);
+  } catch (e) {}
+})();
+</script>
+<meta name="application-name" content="Devman API" />
+<meta name="author" content="Mahmoud Rumaneh" />
+<meta name="description" content="Import an OpenAPI 3.x document into Devman API and get request-ready tests: servers become your Base URL, security schemes map to tokens, and examples prefill bodies." />
+<meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
+<meta name="color-scheme" content="light dark" />
+<meta name="theme-color" content="#f5f6f8" media="(prefers-color-scheme: light)" />
+<meta name="theme-color" content="#0f141b" media="(prefers-color-scheme: dark)" />
+<link rel="canonical" href="https://devman-api.com/openapi-testing" />
+<link rel="alternate" hreflang="en" href="https://devman-api.com/openapi-testing" />
+<link rel="alternate" hreflang="x-default" href="https://devman-api.com/openapi-testing" />
+<link rel="sitemap" type="application/xml" href="https://devman-api.com/sitemap.xml" />
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="Devman API" />
+<meta property="og:locale" content="en_US" />
+<meta property="og:url" content="https://devman-api.com/openapi-testing" />
+<meta property="og:title" content="OpenAPI Testing Tool | Devman API" />
+<meta property="og:description" content="Import an OpenAPI 3.x document and get request-ready tests: servers become your Base URL, security schemes map to tokens, examples prefill bodies." />
+<meta property="og:image" content="https://devman-api.com/devman-api-logo.png" />
+<meta property="og:image:secure_url" content="https://devman-api.com/devman-api-logo.png" />
+<meta property="og:image:type" content="image/png" />
+<meta property="og:image:width" content="836" />
+<meta property="og:image:height" content="632" />
+<meta property="og:image:alt" content="Devman API online API testing workspace" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="OpenAPI Testing Tool | Devman API" />
+<meta name="twitter:description" content="Import an OpenAPI 3.x document and get request-ready tests: servers become your Base URL, security schemes map to tokens, examples prefill bodies." />
+<meta name="twitter:image" content="https://devman-api.com/devman-api-logo.png" />
+<meta name="twitter:image:alt" content="Devman API online API testing workspace" />
+<title>OpenAPI Testing Tool | Devman API</title>
+<link rel="icon" href="/favicon.ico?v=1.0.5" sizes="any" />
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png?v=1.0.5" />
+<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png?v=1.0.5" />
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v=1.0.5" />
+<link rel="stylesheet" href="style.css?v=1.0.5" />
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "WebPage",
+      "@id": "https://devman-api.com/openapi-testing#webpage",
+      "url": "https://devman-api.com/openapi-testing",
+      "name": "OpenAPI Testing Tool | Devman API",
+      "description": "Import an OpenAPI 3.x document and get request-ready tests: servers become your Base URL, security schemes map to tokens, examples prefill bodies.",
+      "isPartOf": { "@id": "https://devman-api.com/#website" },
+      "inLanguage": "en"
+    },
+    {
+      "@type": "BreadcrumbList",
+      "@id": "https://devman-api.com/openapi-testing#breadcrumb",
+      "itemListElement": [
+        { "@type": "ListItem", "position": 1, "name": "Devman API", "item": "https://devman-api.com/" },
+        { "@type": "ListItem", "position": 2, "name": "OpenAPI testing", "item": "https://devman-api.com/openapi-testing" }
+      ]
+    },
+    {
+      "@type": "FAQPage",
+      "@id": "https://devman-api.com/openapi-testing#faq",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "What OpenAPI versions does Devman API support?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Devman API imports OpenAPI 3.x documents in JSON or YAML. For Swagger 2.0 documents, see the dedicated Swagger testing page." }
+        },
+        {
+          "@type": "Question",
+          "name": "Does Devman API set the Base URL from the OpenAPI servers field?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Yes, optionally. When importing, you can choose to use the first server URL from the document as your workspace Base URL." }
+        },
+        {
+          "@type": "Question",
+          "name": "How does Devman API map OpenAPI security schemes to tokens?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Bearer, basic, and API key (header, cookie, or query) security schemes are mapped to token variables automatically, so each secured operation sends the right auth without manual header editing." }
+        },
+        {
+          "@type": "Question",
+          "name": "Can I import an OpenAPI YAML file, or only JSON?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Both. Devman API parses OpenAPI documents in JSON or YAML, from a direct file URL or discovered from a Swagger UI page." }
+        },
+        {
+          "@type": "Question",
+          "name": "Does Devman API support OpenAPI request examples?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Yes. Path, query, header, and cookie parameter examples, and JSON/text/URL-encoded/multipart/binary request body examples, are used to prefill each imported request." }
+        }
+      ]
+    }
+  ]
+}
+</script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="/">
+        <img class="brand-logo" src="devman-api-logo.png?v=1.0.5" alt="Devman API logo" width="53" height="40" fetchpriority="high" />
+        <div>
+          <h1>Devman API</h1>
+          <p>Free, open-source REST API testing</p>
+        </div>
+      </a>
+      <div class="topbar-actions">
+        <a class="btn primary" href="/#api-workspace">Open the app</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="landing-main">
+    <nav class="landing-nav" aria-label="Breadcrumb">
+      <a href="/">Devman API</a>
+      <span aria-hidden="true">/</span>
+      <span>OpenAPI testing</span>
+    </nav>
+
+    <section class="seo-hero card" aria-labelledby="pageHeroTitle">
+      <div class="seo-hero-copy">
+        <p class="seo-eyebrow">OpenAPI 3.x import</p>
+        <h1 id="pageHeroTitle">OpenAPI testing, straight from your spec</h1>
+        <p>Paste an OpenAPI 3.x document URL, or the URL of the Swagger UI page that serves it, and Devman API turns every documented operation into a request-ready test — server URL, security, parameters, and body examples included.</p>
+      </div>
+      <a class="btn primary seo-hero-action" href="/#api-workspace">Start testing free</a>
+    </section>
+
+    <section class="landing-section">
+      <h2>What gets mapped automatically</h2>
+      <p>A <code>servers</code> entry becomes your workspace Base URL (optional, on by default). Each <code>securitySchemes</code> entry becomes a token variable, wired into the right header, cookie, or query parameter for every operation that requires it.</p>
+      <pre class="landing-code">openapi: 3.0.3
+servers:
+  - url: https://api.example.com/v1
+paths:
+  /users/{id}:
+    get:
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer</pre>
+    </section>
+
+    <section class="landing-section">
+      <h2>Swagger 2.0 instead?</h2>
+      <p>This page covers OpenAPI 3.x. If your document is Swagger 2.0, or you only have a Swagger UI page URL, see the dedicated <a href="/swagger-testing">Swagger testing</a> page for that import flow.</p>
+    </section>
+
+    <section class="landing-section seo-faq" aria-labelledby="pageFaqTitle">
+      <h2 id="pageFaqTitle">Frequently asked questions</h2>
+      <div class="api-faq-list">
+        <details>
+          <summary>What OpenAPI versions does Devman API support?</summary>
+          <p>Devman API imports OpenAPI 3.x documents in JSON or YAML. For Swagger 2.0 documents, see the dedicated Swagger testing page.</p>
+        </details>
+        <details>
+          <summary>Does Devman API set the Base URL from the OpenAPI servers field?</summary>
+          <p>Yes, optionally. When importing, you can choose to use the first server URL from the document as your workspace Base URL.</p>
+        </details>
+        <details>
+          <summary>How does Devman API map OpenAPI security schemes to tokens?</summary>
+          <p>Bearer, basic, and API key (header, cookie, or query) security schemes are mapped to token variables automatically, so each secured operation sends the right auth without manual header editing.</p>
+        </details>
+        <details>
+          <summary>Can I import an OpenAPI YAML file, or only JSON?</summary>
+          <p>Both. Devman API parses OpenAPI documents in JSON or YAML, from a direct file URL or discovered from a Swagger UI page.</p>
+        </details>
+        <details>
+          <summary>Does Devman API support OpenAPI request examples?</summary>
+          <p>Yes. Path, query, header, and cookie parameter examples, and JSON/text/URL-encoded/multipart/binary request body examples, are used to prefill each imported request.</p>
+        </details>
+      </div>
+    </section>
+
+    <section class="landing-section">
+      <h2>Explore more</h2>
+      <nav class="landing-related" aria-label="Related pages">
+        <a href="/">Home</a>
+        <a href="/api-testing">Free API testing tool</a>
+        <a href="/automated-api-testing">Automated API testing</a>
+        <a href="/swagger-testing">Swagger testing</a>
+        <a href="/postman-alternative">Postman alternative</a>
+        <a href="/curl-api-testing">cURL API testing</a>
+      </nav>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="footer-credit">
+      <span>Developed by</span>
+      <a href="https://mhmoud.life" target="_blank" rel="noopener noreferrer">Mahmoud Rumaneh <span aria-hidden="true">↗</span></a>
+    </div>
+    <nav class="footer-links" aria-label="Project links">
+      <a href="/#api-testing-faq">API guide &amp; FAQ</a>
+      <a href="/#why-devman">Why Devman API</a>
+      <a href="https://github.com/MahmoudRumaneh/devman" target="_blank" rel="noopener noreferrer">GitHub <span aria-hidden="true">↗</span></a>
+      <a class="report-issue-link" href="https://github.com/MahmoudRumaneh/devman/issues/new" target="_blank" rel="noopener noreferrer">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8v4M12 16h.01"></path><circle cx="12" cy="12" r="9"></circle></svg>
+        <span>Report an issue</span>
+      </a>
+    </nav>
+  </footer>
+</body>
+</html>

@@ -8,9 +8,22 @@ const path = require('node:path');
 const publicDirectory = path.join(__dirname, '..', 'public');
 const html = fs.readFileSync(path.join(publicDirectory, 'index.html'), 'utf8');
 
+const LANDING_SLUGS = [
+  'api-testing',
+  'automated-api-testing',
+  'openapi-testing',
+  'swagger-testing',
+  'postman-alternative',
+  'curl-api-testing',
+];
+
 function htmlAttribute(tagPattern, attributeName) {
   const tag = html.match(tagPattern)?.[0] || '';
   return tag.match(new RegExp(`${attributeName}="([^"]+)"`))?.[1] || '';
+}
+
+function escapeRegExp(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 test('homepage exposes complete indexable search metadata', () => {
@@ -65,7 +78,10 @@ test('robots and sitemap expose only the canonical public website', () => {
   assert.match(robots, /^User-agent: ClaudeBot$/m);
   assert.match(robots, /^Sitemap: https:\/\/devman-api\.com\/sitemap\.xml$/m);
   assert.match(sitemap, /<loc>https:\/\/devman-api\.com\/<\/loc>/);
-  assert.equal((sitemap.match(/<url>/g) || []).length, 1);
+  assert.equal((sitemap.match(/<url>/g) || []).length, 7);
+  for (const slug of LANDING_SLUGS) {
+    assert.match(sitemap, new RegExp(`<loc>https://devman-api\\.com/${slug}</loc>`));
+  }
 });
 
 test('homepage publishes an llms.txt summary for AI assistants', () => {
@@ -74,4 +90,40 @@ test('homepage publishes an llms.txt summary for AI assistants', () => {
   assert.match(llmsTxt, /^# Devman API$/m);
   assert.match(llmsTxt, /MIT/);
   assert.match(llmsTxt, /https:\/\/github\.com\/MahmoudRumaneh\/devman/);
+  for (const slug of LANDING_SLUGS) {
+    assert.match(llmsTxt, new RegExp(`devman-api\\.com/${slug}`));
+  }
+});
+
+test('each landing page has unique, indexable metadata and valid structured data', () => {
+  const seenTitles = new Set();
+  const seenFaqQuestions = new Set();
+
+  for (const slug of LANDING_SLUGS) {
+    const pageHtml = fs.readFileSync(path.join(publicDirectory, `${slug}.html`), 'utf8');
+    const title = pageHtml.match(/<title>([^<]+)<\/title>/)?.[1] || '';
+    const description = pageHtml.match(/<meta name="description" content="([^"]+)"/)?.[1] || '';
+    const canonical = pageHtml.match(/<link rel="canonical" href="([^"]+)"/)?.[1] || '';
+
+    assert.ok(title.length > 0, `${slug}: missing title`);
+    assert.ok(!seenTitles.has(title), `${slug}: duplicate title "${title}"`);
+    seenTitles.add(title);
+
+    assert.ok(description.length >= 120 && description.length <= 170, `${slug}: description length ${description.length}`);
+    assert.equal(canonical, `https://devman-api.com/${slug}`);
+    assert.doesNotMatch(pageHtml, /<meta name="keywords"/i);
+
+    const rawStructuredData = pageHtml.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/)?.[1];
+    assert.ok(rawStructuredData, `${slug}: missing JSON-LD`);
+    const structuredData = JSON.parse(rawStructuredData);
+    const types = structuredData['@graph'].map((item) => item['@type']);
+    assert.deepEqual(types, ['WebPage', 'BreadcrumbList', 'FAQPage'], `${slug}: unexpected JSON-LD types`);
+
+    const faq = structuredData['@graph'].find((item) => item['@type'] === 'FAQPage');
+    for (const question of faq.mainEntity) {
+      assert.ok(!seenFaqQuestions.has(question.name), `duplicate FAQ question across pages: "${question.name}"`);
+      seenFaqQuestions.add(question.name);
+      assert.match(pageHtml, new RegExp(escapeRegExp(question.name)), `${slug}: FAQPage question "${question.name}" not found in visible <details> text`);
+    }
+  }
 });

@@ -98,8 +98,18 @@ async function readJsonBody(req) {
 function serveStatic(req, res) {
   let reqPath = req.url.split('?')[0];
   if (reqPath === '/') reqPath = '/index.html';
-  const filePath = path.normalize(path.join(PUBLIC_DIR, reqPath));
-  if (!filePath.startsWith(PUBLIC_DIR) || !fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+  let filePath = path.normalize(path.join(PUBLIC_DIR, reqPath));
+  if (!filePath.startsWith(PUBLIC_DIR)) {
+    return sendJson(res, 404, { error: 'not found' });
+  }
+  if ((!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) && path.extname(reqPath) === '') {
+    // Clean-URL fallback so local dev matches the Vercel rewrites for landing pages, e.g. /postman-alternative -> /postman-alternative.html
+    const htmlPath = `${filePath}.html`;
+    if (htmlPath.startsWith(PUBLIC_DIR) && fs.existsSync(htmlPath) && fs.statSync(htmlPath).isFile()) {
+      filePath = htmlPath;
+    }
+  }
+  if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
     return sendJson(res, 404, { error: 'not found' });
   }
   const ext = path.extname(filePath);
