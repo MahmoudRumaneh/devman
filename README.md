@@ -11,7 +11,17 @@
 <p align="center">
   <a href="https://github.com/MahmoudRumaneh/devman/actions/workflows/ci.yml"><img alt="CI status" src="https://github.com/MahmoudRumaneh/devman/actions/workflows/ci.yml/badge.svg" /></a>
   <img alt="Node.js 24" src="https://img.shields.io/badge/Node.js-24-339933?logo=node.js&logoColor=white" />
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-blue.svg" /></a>
+  <a href="https://devman-api.com"><img alt="Live app" src="https://img.shields.io/badge/Live%20app-devman--api.com-4f5bd5" /></a>
 </p>
+
+## 🌐 Website
+
+**Devman API** is free to use at:
+
+**[https://devman-api.com](https://devman-api.com)**
+
+No install, no account, no sign-up. Import Swagger, OpenAPI, Postman, or cURL and start testing complete API workflows in the browser. The same source in this repository powers that site, and it can also be self-hosted locally or deployed to your own Vercel project (see [Deployment](#deployment)).
 
 ## Why Devman API?
 
