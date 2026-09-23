@@ -1,5 +1,9 @@
 <p align="center">
-  <img src="public/devman-api-logo.png" alt="Devman API logo" width="132" />
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="public/og-image-dark.png" />
+    <source media="(prefers-color-scheme: light)" srcset="public/og-image.png" />
+    <img src="public/og-image.png" alt="Devman API: free, open-source REST API testing, with a screenshot of the workspace" width="720" />
+  </picture>
 </p>
 
 <h1 align="center">Devman API</h1>
@@ -22,6 +26,51 @@
 **[https://devman-api.com](https://devman-api.com)**
 
 No install, no account, no sign-up. Import Swagger, OpenAPI, Postman, or cURL and start testing complete API workflows in the browser. The same source in this repository powers that site, and it can also be self-hosted locally or deployed to your own Vercel project (see [Deployment](#deployment)).
+
+## Screenshots
+
+### Building a workflow
+
+Paste routes, cURL, or import Swagger/OpenAPI/Postman — endpoints land in a request-ready group.
+
+![Devman API workspace with three imported endpoints, ready to run](docs/screenshots/01-workflow.png)
+
+### Running it and inspecting a response
+
+Run the group, see pass/fail/timing at a glance, and expand any request to inspect the full response body and headers.
+
+![Devman API showing a passed run with an expanded response body](docs/screenshots/03-response-detail.png)
+
+### Generated report
+
+**Save report (.md)** exports a Markdown summary of the run — status, timing, and the full response for every request:
+
+````markdown
+# Devman API run — devman-api
+
+- Base URL: `https://jsonplaceholder.typicode.com`
+
+## Summary
+
+| Result | Count |
+|---|---|
+| PASS | 3 |
+| BUG (flagged, non-blocking) | 0 |
+| FAIL/ERROR | 0 |
+
+## Requests
+
+### Quick add
+
+#### [PASS] GET /users/1
+
+`GET https://jsonplaceholder.typicode.com/users/1` — status: 200, 307ms
+
+**Response**
+```json
+{ "id": 1, "name": "Leanne Graham", "username": "Bret", ... }
+```
+````
 
 ## Why Devman API?
 

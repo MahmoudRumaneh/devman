@@ -35,7 +35,7 @@ test('homepage exposes complete indexable search metadata', () => {
   assert.equal(htmlAttribute(/<link rel="canonical"[^>]*>/, 'href'), 'https://devman-api.com/');
   assert.match(htmlAttribute(/<meta name="robots"[^>]*>/, 'content'), /index, follow/);
   assert.equal(htmlAttribute(/<meta property="og:url"[^>]*>/, 'content'), 'https://devman-api.com/');
-  assert.equal(htmlAttribute(/<meta property="og:image"[^>]*>/, 'content'), 'https://devman-api.com/devman-api-logo.png');
+  assert.equal(htmlAttribute(/<meta property="og:image"[^>]*>/, 'content'), 'https://devman-api.com/og-image.png');
   assert.equal(htmlAttribute(/<meta name="twitter:card"[^>]*>/, 'content'), 'summary_large_image');
   assert.doesNotMatch(html, /<meta name="keywords"/i);
 });
@@ -81,6 +81,21 @@ test('robots and sitemap expose only the canonical public website', () => {
   assert.equal((sitemap.match(/<url>/g) || []).length, 7);
   for (const slug of LANDING_SLUGS) {
     assert.match(sitemap, new RegExp(`<loc>https://devman-api\\.com/${slug}</loc>`));
+  }
+});
+
+function pngDimensions(filePath) {
+  const buffer = fs.readFileSync(filePath);
+  return { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20) };
+}
+
+test('og-image.png and og-image-dark.png exist at the standard 1200x630 social size', () => {
+  for (const name of ['og-image.png', 'og-image-dark.png']) {
+    const filePath = path.join(publicDirectory, name);
+    assert.ok(fs.existsSync(filePath), `${name} is missing`);
+    const { width, height } = pngDimensions(filePath);
+    assert.equal(width, 1200, `${name} width`);
+    assert.equal(height, 630, `${name} height`);
   }
 });
 
