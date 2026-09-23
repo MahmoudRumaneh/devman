@@ -6,7 +6,7 @@
 <meta name="application-version" content="1.0.5" />
 <meta name="application-name" content="Devman API" />
 <meta name="author" content="Mahmoud Rumaneh" />
-<meta name="description" content="Test REST APIs online with Devman API. Import Swagger, OpenAPI, and Postman collections, paste cURL, run workflows, inspect responses, and export reports." />
+<meta name="description" content="Devman API is a free, open-source REST API testing tool in your browser. Import Swagger, OpenAPI, Postman, or cURL, chain requests, and export reports." />
 <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
 <meta name="color-scheme" content="light dark" />
 <meta name="theme-color" content="#f5f6f8" media="(prefers-color-scheme: light)" />
@@ -19,8 +19,8 @@
 <meta property="og:site_name" content="Devman API" />
 <meta property="og:locale" content="en_US" />
 <meta property="og:url" content="https://devman-api.com/" />
-<meta property="og:title" content="Devman API: Free Online REST API Testing Tool" />
-<meta property="og:description" content="Import Swagger, OpenAPI, Postman, and cURL. Run complete API workflows, inspect every response, and export clear test reports." />
+<meta property="og:title" content="Devman API: Free Open-Source REST API Testing Tool" />
+<meta property="og:description" content="Free, open-source, browser-based REST API client. Import Swagger, OpenAPI, Postman, or cURL, chain requests into workflows, and export reports. No install, no account." />
 <meta property="og:image" content="https://devman-api.com/devman-api-logo.png" />
 <meta property="og:image:secure_url" content="https://devman-api.com/devman-api-logo.png" />
 <meta property="og:image:type" content="image/png" />
@@ -28,11 +28,11 @@
 <meta property="og:image:height" content="632" />
 <meta property="og:image:alt" content="Devman API online API testing workspace" />
 <meta name="twitter:card" content="summary_large_image" />
-<meta name="twitter:title" content="Devman API: Free Online REST API Testing Tool" />
-<meta name="twitter:description" content="Import API definitions and requests, run complete workflows, inspect responses, and export reports from one browser workspace." />
+<meta name="twitter:title" content="Devman API: Free Open-Source REST API Testing Tool" />
+<meta name="twitter:description" content="Free, open-source, browser-based REST API client. Import Swagger, OpenAPI, Postman, or cURL, chain requests into workflows, and export reports." />
 <meta name="twitter:image" content="https://devman-api.com/devman-api-logo.png" />
 <meta name="twitter:image:alt" content="Devman API online API testing workspace" />
-<title>Devman API: Free Online REST API Testing Tool</title>
+<title>Devman API – Free Open Source REST API Testing Tool</title>
 <link rel="icon" href="/favicon.ico?v=1.0.5" sizes="any" />
 <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png?v=1.0.5" />
 <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png?v=1.0.5" />
@@ -56,7 +56,7 @@
       "@type": "WebPage",
       "@id": "https://devman-api.com/#webpage",
       "url": "https://devman-api.com/",
-      "name": "Devman API: Free Online REST API Testing Tool",
+      "name": "Devman API: Free Open-Source REST API Testing Tool",
       "description": "Import Swagger, OpenAPI, Postman, and cURL requests, run sequential API workflows, inspect responses, and export reports.",
       "isPartOf": { "@id": "https://devman-api.com/#website" },
       "primaryImageOfPage": { "@id": "https://devman-api.com/#primaryimage" },
@@ -66,6 +66,30 @@
         { "@type": "Thing", "name": "API workflow automation" }
       ],
       "inLanguage": "en"
+    },
+    {
+      "@type": "SoftwareApplication",
+      "@id": "https://devman-api.com/#software",
+      "name": "Devman API",
+      "url": "https://devman-api.com/",
+      "applicationCategory": "DeveloperApplication",
+      "operatingSystem": "Any (runs in a web browser)",
+      "browserRequirements": "Requires a modern web browser",
+      "softwareVersion": "1.0.5",
+      "isAccessibleForFree": true,
+      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+      "license": "https://github.com/MahmoudRumaneh/devman/blob/main/LICENSE",
+      "codeRepository": "https://github.com/MahmoudRumaneh/devman",
+      "featureList": [
+        "Import OpenAPI 3.x and Swagger 2.0 specifications",
+        "Import Postman Collection v2.0/v2.1 files",
+        "Import cURL commands from Bash, PowerShell, and Command Prompt",
+        "Chain requests with variables captured from earlier responses",
+        "Run staged, sequential API workflows",
+        "jq-based response assertions",
+        "Export Markdown test reports"
+      ],
+      "creator": { "@id": "https://mhmoud.life/#person" }
     },
     {
       "@type": "ImageObject",
@@ -82,6 +106,37 @@
       "name": "Mahmoud Rumaneh",
       "url": "https://mhmoud.life/",
       "sameAs": ["https://github.com/MahmoudRumaneh"]
+    },
+    {
+      "@type": "FAQPage",
+      "@id": "https://devman-api.com/#faq",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "Is Devman API free to use?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Yes. Devman API is completely free, with no account, sign-up, or paid tier." }
+        },
+        {
+          "@type": "Question",
+          "name": "Do I need to install anything?",
+          "acceptedAnswer": { "@type": "Answer", "text": "No. Devman API runs entirely in your browser. You can also self-host it locally with Node.js or deploy your own instance, but no desktop install is required to use the hosted app." }
+        },
+        {
+          "@type": "Question",
+          "name": "Is Devman API open source?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Yes. Devman API is open source under the MIT license, and the full source code is available on GitHub." }
+        },
+        {
+          "@type": "Question",
+          "name": "Can I self-host Devman API?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Yes. Clone the repository and run it locally with Node.js, or deploy your own instance to Vercel." }
+        },
+        {
+          "@type": "Question",
+          "name": "Does Devman API chain requests together?",
+          "acceptedAnswer": { "@type": "Answer", "text": "Yes. Capture values such as tokens and IDs from one response with jq expressions, then reuse them as variables in later requests within the same workflow." }
+        }
+      ]
     }
   ]
 }
@@ -110,15 +165,16 @@
   <main class="container">
     <section class="seo-hero card" aria-labelledby="seoHeroTitle">
       <div class="seo-hero-copy">
-        <p class="seo-eyebrow">Free online API testing workspace</p>
-        <h2 id="seoHeroTitle">Test REST APIs and complete workflows in one browser workspace</h2>
-        <p>Devman API is a fast REST API client for developers and QA teams. Import Swagger or OpenAPI, load Postman collections, paste cURL commands, connect requests with variables, and inspect every HTTP response.</p>
+        <p class="seo-eyebrow">Free, open-source API client in your browser</p>
+        <h2 id="seoHeroTitle">Test REST APIs and complete workflows in one free, open-source browser workspace</h2>
+        <p>Devman API is a free, open-source REST API testing tool that runs entirely in your browser — no install, no account, no download. Import Swagger, OpenAPI, or Postman collections, paste cURL commands, chain requests with captured variables, and inspect every HTTP response. Self-host it locally or deploy your own instance.</p>
         <ul class="seo-capabilities" aria-label="Supported API testing features">
           <li>Swagger &amp; OpenAPI</li>
           <li>Postman collections</li>
           <li>cURL importer</li>
-          <li>Sequential workflows</li>
-          <li>Response inspection</li>
+          <li>Request chaining</li>
+          <li>Open source &amp; self-hosted</li>
+          <li>No install, no account</li>
         </ul>
       </div>
       <a class="btn primary seo-hero-action" href="#api-workspace">Start testing APIs</a>
@@ -261,6 +317,81 @@ curl 'https://api.example.com/users' \
       <div class="btn-row">
         <button id="addRowBtn2" class="btn ghost" type="button">+ Add empty row</button>
         <button id="addStageBtn" class="btn ghost" type="button">+ Add group</button>
+      </div>
+    </section>
+
+    <section class="card seo-extra" aria-labelledby="seoExtraTitle">
+      <h2 id="seoExtraTitle">Why teams choose Devman API</h2>
+      <div class="seo-theme-grid">
+        <article>
+          <h3>Free, browser-based, no install</h3>
+          <p>Open the app and start testing. There is nothing to download, and no account or sign-up is required.</p>
+        </article>
+        <article>
+          <h3>Open source &amp; self-hosted</h3>
+          <p>Devman API is MIT licensed. Run the hosted app, self-host it locally with Node.js, or deploy your own instance to Vercel.</p>
+        </article>
+        <article>
+          <h3>Request chaining &amp; workflows</h3>
+          <p>Capture tokens and IDs from a response with jq, then reuse them as variables in later requests within the same staged workflow.</p>
+        </article>
+        <article>
+          <h3>OpenAPI &amp; Swagger testing</h3>
+          <p>Import an OpenAPI 3.x or Swagger 2.0 document, or a Swagger UI URL, and turn documented operations into request-ready tests.</p>
+        </article>
+        <article>
+          <h3>Import your existing collections</h3>
+          <p>Import Postman Collection v2.0/v2.1 files, including nested folders, variables, and bearer tokens, for sequential request chaining without a visual canvas.</p>
+        </article>
+        <article>
+          <h3>Debugging &amp; inspection</h3>
+          <p>Inspect the resolved URL, sent headers, request body, response headers, response body, timing, and retry count for every request.</p>
+        </article>
+      </div>
+
+      <div class="seo-compare-wrap">
+        <h3>Devman API vs. a typical desktop API client</h3>
+        <table class="seo-compare-table">
+          <thead>
+            <tr>
+              <th scope="col">Devman API</th>
+              <th scope="col">Typical desktop API client</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>Runs in the browser, no install</td><td>Requires a desktop app download</td></tr>
+            <tr><td>No account or sign-up</td><td>Often requires an account</td></tr>
+            <tr><td>Open source, MIT licensed</td><td>Often closed source</td></tr>
+            <tr><td>Self-hostable with Node.js or Vercel</td><td>Usually cannot be self-hosted</td></tr>
+            <tr><td>Free, no paid tier</td><td>Often has paid plans and usage limits</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="seo-faq" aria-labelledby="seoFaqTitle">
+        <h3 id="seoFaqTitle">More questions about Devman API</h3>
+        <div class="api-faq-list">
+          <details>
+            <summary>Is Devman API free to use?</summary>
+            <p>Yes. Devman API is completely free, with no account, sign-up, or paid tier.</p>
+          </details>
+          <details>
+            <summary>Do I need to install anything?</summary>
+            <p>No. Devman API runs entirely in your browser. You can also self-host it locally with Node.js or deploy your own instance, but no desktop install is required to use the hosted app.</p>
+          </details>
+          <details>
+            <summary>Is Devman API open source?</summary>
+            <p>Yes. Devman API is open source under the MIT license, and the full source code is available on GitHub.</p>
+          </details>
+          <details>
+            <summary>Can I self-host Devman API?</summary>
+            <p>Yes. Clone the repository and run it locally with Node.js, or deploy your own instance to Vercel.</p>
+          </details>
+          <details>
+            <summary>Does Devman API chain requests together?</summary>
+            <p>Yes. Capture values such as tokens and IDs from one response with jq expressions, then reuse them as variables in later requests within the same workflow.</p>
+          </details>
+        </div>
       </div>
     </section>
 

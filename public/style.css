@@ -8301,11 +8301,124 @@ body.has-group-selection .back-to-top {
   box-shadow: 0 8px 18px color-mix(in srgb, var(--accent) 20%, transparent);
 }
 
+.seo-extra {
+  grid-column: 1 / -1;
+}
+
+.seo-extra > h2 {
+  margin: 0 0 16px;
+  color: var(--text);
+  font-size: clamp(19px, 2.6vw, 24px);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.seo-theme-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.seo-theme-grid article {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--surface-2) 72%, var(--surface));
+}
+
+.seo-theme-grid h3 {
+  margin: 0 0 7px;
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.seo-theme-grid p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  line-height: 1.62;
+}
+
+.seo-compare-wrap {
+  margin-top: 24px;
+}
+
+.seo-compare-wrap h3 {
+  margin: 0 0 12px;
+  color: var(--text);
+  font-size: 16px;
+}
+
+.seo-compare-table {
+  width: 100%;
+  border-collapse: collapse;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  overflow: hidden;
+  font-size: 12.5px;
+}
+
+.seo-compare-table th,
+.seo-compare-table td {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+
+.seo-compare-table th {
+  background: color-mix(in srgb, var(--accent-soft) 66%, transparent);
+  color: var(--text);
+  font-weight: 800;
+}
+
+.seo-compare-table td {
+  color: var(--text-muted);
+}
+
+.seo-compare-table td:first-child {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.seo-compare-table tr:last-child th,
+.seo-compare-table tr:last-child td {
+  border-bottom: none;
+}
+
+.seo-extra .seo-faq {
+  margin-top: 24px;
+}
+
+@media (max-width: 900px) {
+  .seo-theme-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  .seo-theme-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 9px;
+  }
+
+  .seo-compare-table {
+    font-size: 11.5px;
+  }
+
+  .seo-compare-table th,
+  .seo-compare-table td {
+    padding: 8px 10px;
+  }
+}
+
 @media (min-width: 1181px) {
   .seo-hero { grid-row: 1; }
   .setup-rail,
   .workspace-card { grid-row: 2; }
-  .site-footer { grid-row: 3; }
+  .seo-extra { grid-row: 3; }
+  .site-footer { grid-row: 4; }
 }
 
 @media (max-width: 900px) {

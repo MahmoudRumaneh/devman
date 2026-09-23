@@ -1,0 +1,21 @@
+# Devman API
+
+> Free, open-source, browser-based REST API testing tool. Import Swagger, OpenAPI, Postman collections, or cURL, chain requests into staged workflows, and export reports. No install, no account, MIT licensed, self-hostable.
+
+Devman API is a browser workspace for testing REST APIs and multi-step API workflows. Paste endpoint routes or cURL commands, or import an OpenAPI/Swagger document or a Postman collection. Requests run in order within named groups; values captured from one JSON response (via jq) are reused as variables in later requests. Workspace data, including pasted tokens, is stored in the browser's local storage. A small local Node server or serverless proxy forwards requests to avoid browser CORS restrictions.
+
+## Key facts
+
+- License: MIT (open source). Source: https://github.com/MahmoudRumaneh/devman
+- Cost: Free. No account, sign-up, or paid tier.
+- Import formats: OpenAPI 3.x, Swagger 2.0 (JSON/YAML/Swagger UI URL), Postman Collection v2.0/v2.1, cURL (Bash, PowerShell, Command Prompt)
+- Core features: request chaining via captured variables, staged/sequential workflow execution, jq-based assertions, bearer-token profile management, Markdown test reports, JSON suite import/export
+- Deployment: use the hosted app at devman-api.com, run locally with Node.js (`npm start`), or self-host on Vercel
+- Not included: visual/node-based flow canvas, hosted team accounts, or built-in mock servers
+
+## Pages
+
+- [Devman API](https://devman-api.com/): the REST API testing workspace (single-page app)
+- [README](https://github.com/MahmoudRumaneh/devman/blob/main/README.md): setup, suite JSON format, and import compatibility details
+- [Security and privacy](https://github.com/MahmoudRumaneh/devman/blob/main/SECURITY.md): vulnerability reporting policy
+- [License](https://github.com/MahmoudRumaneh/devman/blob/main/LICENSE): MIT License

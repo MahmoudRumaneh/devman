@@ -2,6 +2,7 @@
   "name": "devman-api",
   "version": "1.0.5",
   "private": true,
+  "license": "MIT",
   "description": "Devman API is a browser-based workspace for building and running staged API test flows.",
   "scripts": {
     "start": "node server.js",

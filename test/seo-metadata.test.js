@@ -17,7 +17,7 @@ test('homepage exposes complete indexable search metadata', () => {
   const title = html.match(/<title>([^<]+)<\/title>/)?.[1] || '';
   const description = htmlAttribute(/<meta name="description"[^>]*>/, 'content');
 
-  assert.equal(title, 'Devman API: Free Online REST API Testing Tool');
+  assert.equal(title, 'Devman API – Free Open Source REST API Testing Tool');
   assert.ok(description.length >= 120 && description.length <= 170);
   assert.equal(htmlAttribute(/<link rel="canonical"[^>]*>/, 'href'), 'https://devman-api.com/');
   assert.match(htmlAttribute(/<meta name="robots"[^>]*>/, 'content'), /index, follow/);
@@ -34,12 +34,12 @@ test('homepage structured data identifies the website, webpage, image, and creat
   const types = structuredData['@graph'].map((item) => item['@type']);
 
   assert.equal(structuredData['@context'], 'https://schema.org');
-  assert.deepEqual(types, ['WebSite', 'WebPage', 'ImageObject', 'Person']);
+  assert.deepEqual(types, ['WebSite', 'WebPage', 'SoftwareApplication', 'ImageObject', 'Person', 'FAQPage']);
   assert.equal(structuredData['@graph'][0].url, 'https://devman-api.com/');
 });
 
 test('homepage contains visible, semantic API testing content', () => {
-  assert.match(html, /<h2 id="seoHeroTitle">Test REST APIs/);
+  assert.match(html, /<h2 id="seoHeroTitle">Test REST APIs and complete workflows/);
   assert.match(html, /Swagger and OpenAPI testing/);
   assert.match(html, /Postman and cURL import/);
   assert.match(html, /id="api-testing-faq"/);
@@ -61,7 +61,17 @@ test('robots and sitemap expose only the canonical public website', () => {
   assert.match(robots, /^User-agent: \*$/m);
   assert.match(robots, /^Allow: \/$/m);
   assert.match(robots, /^Disallow: \/api\/$/m);
+  assert.match(robots, /^User-agent: GPTBot$/m);
+  assert.match(robots, /^User-agent: ClaudeBot$/m);
   assert.match(robots, /^Sitemap: https:\/\/devman-api\.com\/sitemap\.xml$/m);
   assert.match(sitemap, /<loc>https:\/\/devman-api\.com\/<\/loc>/);
   assert.equal((sitemap.match(/<url>/g) || []).length, 1);
+});
+
+test('homepage publishes an llms.txt summary for AI assistants', () => {
+  const llmsTxt = fs.readFileSync(path.join(publicDirectory, 'llms.txt'), 'utf8');
+
+  assert.match(llmsTxt, /^# Devman API$/m);
+  assert.match(llmsTxt, /MIT/);
+  assert.match(llmsTxt, /https:\/\/github\.com\/MahmoudRumaneh\/devman/);
 });

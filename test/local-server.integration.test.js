@@ -86,7 +86,7 @@ test('local server imports private OpenAPI, proxies JSON, streams binary, and se
   const page = await fetch(devmanOrigin);
   assert.equal(page.status, 200);
   assert.equal(page.headers.get('cache-control'), 'public, max-age=0, must-revalidate');
-  assert.match(await page.text(), /<title>Devman API: Free Online REST API Testing Tool<\/title>/);
+  assert.match(await page.text(), /<title>Devman API – Free Open Source REST API Testing Tool<\/title>/);
 
   const appScript = await fetch(`${devmanOrigin}/app.js?v=1.0.5`);
   assert.equal(appScript.status, 200);
