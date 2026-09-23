@@ -8301,18 +8301,6 @@ body.has-group-selection .back-to-top {
   box-shadow: 0 8px 18px color-mix(in srgb, var(--accent) 20%, transparent);
 }
 
-.seo-extra {
-  grid-column: 1 / -1;
-}
-
-.seo-extra > h2 {
-  margin: 0 0 16px;
-  color: var(--text);
-  font-size: clamp(19px, 2.6vw, 24px);
-  font-weight: 800;
-  letter-spacing: -0.02em;
-}
-
 .seo-theme-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -8387,7 +8375,8 @@ body.has-group-selection .back-to-top {
   border-bottom: none;
 }
 
-.seo-extra .seo-faq {
+.api-info-content .seo-compare-wrap,
+.api-info-content .seo-faq {
   margin-top: 24px;
 }
 
@@ -8417,8 +8406,7 @@ body.has-group-selection .back-to-top {
   .seo-hero { grid-row: 1; }
   .setup-rail,
   .workspace-card { grid-row: 2; }
-  .seo-extra { grid-row: 3; }
-  .site-footer { grid-row: 4; }
+  .site-footer { grid-row: 3; }
 }
 
 @media (max-width: 900px) {

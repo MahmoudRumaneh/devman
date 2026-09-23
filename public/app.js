@@ -6,6 +6,7 @@
   const GUIDE_SEEN_KEY = 'devmanApi.guideSeen.v1';
   const GUIDE_SEEN_VALUE = 'seen';
   const API_INFO_HASH = '#api-testing-faq';
+  const WHY_DEVMAN_HASH = '#why-devman';
   const LEGACY_STORAGE_KEY = 'apiTestStudio.v3';
   const LEGACY_THEME_KEY = 'apiTestStudio.theme';
   const DEFAULT_PROJECT_NAME = 'devman-api';
@@ -1567,24 +1568,25 @@
     syncPage();
 
     if (localStorage.getItem(GUIDE_SEEN_KEY) !== GUIDE_SEEN_VALUE
-      && window.location.hash !== API_INFO_HASH) {
+      && window.location.hash !== API_INFO_HASH
+      && window.location.hash !== WHY_DEVMAN_HASH) {
       window.requestAnimationFrame(() => open());
     }
   }
 
-  function bindApiInfoModal() {
-    const trigger = el('apiInfoLink');
-    const modal = el('api-testing-faq');
-    const closeButton = el('apiInfoClose');
-    const doneButton = el('apiInfoDone');
-    const title = el('apiTestingGuideTitle');
+  function bindHashModal({ hash, triggerId, modalId, closeId, doneId, titleId, doneFocusTargetId }) {
+    const trigger = el(triggerId);
+    const modal = el(modalId);
+    const closeButton = el(closeId);
+    const doneButton = el(doneId);
+    const title = el(titleId);
     if (!trigger || !modal || !closeButton || !doneButton || !title) return;
 
     let returnFocus = trigger;
     let closeTimer;
 
     const removeHash = () => {
-      if (window.location.hash !== API_INFO_HASH) return;
+      if (window.location.hash !== hash) return;
       window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
     };
 
@@ -1615,8 +1617,8 @@
       window.clearTimeout(closeTimer);
       if (!modal.hidden) return;
       returnFocus = source instanceof HTMLElement ? source : trigger;
-      if (updateHash && window.location.hash !== API_INFO_HASH) {
-        window.history.pushState(null, '', API_INFO_HASH);
+      if (updateHash && window.location.hash !== hash) {
+        window.history.pushState(null, '', hash);
       }
       modal.hidden = false;
       trigger.setAttribute('aria-expanded', 'true');
@@ -1629,7 +1631,7 @@
     };
 
     const syncWithLocation = () => {
-      if (window.location.hash === API_INFO_HASH) open({ updateHash: false });
+      if (window.location.hash === hash) open({ updateHash: false });
       else close({ updateHash: false });
     };
 
@@ -1639,15 +1641,39 @@
       open({ source: trigger });
     });
     closeButton.addEventListener('click', () => close());
-    doneButton.addEventListener('click', () => close({ focusTarget: el('baseUrl') }));
+    doneButton.addEventListener('click', () => close({ focusTarget: doneFocusTargetId ? el(doneFocusTargetId) : undefined }));
     modal.addEventListener('click', (event) => {
       if (event.target === modal) close();
     });
     window.addEventListener('hashchange', syncWithLocation);
     window.addEventListener('popstate', syncWithLocation);
-    if (window.location.hash === API_INFO_HASH) {
+    if (window.location.hash === hash) {
       window.requestAnimationFrame(() => open({ updateHash: false }));
     }
+  }
+
+  function bindWhyDevmanModal() {
+    bindHashModal({
+      hash: WHY_DEVMAN_HASH,
+      triggerId: 'whyDevmanLink',
+      modalId: 'why-devman',
+      closeId: 'whyDevmanClose',
+      doneId: 'whyDevmanDone',
+      titleId: 'whyDevmanTitle',
+      doneFocusTargetId: 'baseUrl',
+    });
+  }
+
+  function bindApiInfoModal() {
+    bindHashModal({
+      hash: API_INFO_HASH,
+      triggerId: 'apiInfoLink',
+      modalId: 'api-testing-faq',
+      closeId: 'apiInfoClose',
+      doneId: 'apiInfoDone',
+      titleId: 'apiTestingGuideTitle',
+      doneFocusTargetId: 'baseUrl',
+    });
   }
 
   // ---- variable substitution -------------------------------------------------
@@ -6025,6 +6051,7 @@
     bindTokenCardDock();
     bindGuide();
     bindApiInfoModal();
+    bindWhyDevmanModal();
     if (!hasSavedWorkspace && !state.rows.length && !state.laneOrder.length) {
       const laneId = lastLaneId();
       const profile = state.tokenProfiles[0];

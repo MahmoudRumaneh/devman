@@ -320,81 +320,6 @@ curl 'https://api.example.com/users' \
       </div>
     </section>
 
-    <section class="card seo-extra" aria-labelledby="seoExtraTitle">
-      <h2 id="seoExtraTitle">Why teams choose Devman API</h2>
-      <div class="seo-theme-grid">
-        <article>
-          <h3>Free, browser-based, no install</h3>
-          <p>Open the app and start testing. There is nothing to download, and no account or sign-up is required.</p>
-        </article>
-        <article>
-          <h3>Open source &amp; self-hosted</h3>
-          <p>Devman API is MIT licensed. Run the hosted app, self-host it locally with Node.js, or deploy your own instance to Vercel.</p>
-        </article>
-        <article>
-          <h3>Request chaining &amp; workflows</h3>
-          <p>Capture tokens and IDs from a response with jq, then reuse them as variables in later requests within the same staged workflow.</p>
-        </article>
-        <article>
-          <h3>OpenAPI &amp; Swagger testing</h3>
-          <p>Import an OpenAPI 3.x or Swagger 2.0 document, or a Swagger UI URL, and turn documented operations into request-ready tests.</p>
-        </article>
-        <article>
-          <h3>Import your existing collections</h3>
-          <p>Import Postman Collection v2.0/v2.1 files, including nested folders, variables, and bearer tokens, for sequential request chaining without a visual canvas.</p>
-        </article>
-        <article>
-          <h3>Debugging &amp; inspection</h3>
-          <p>Inspect the resolved URL, sent headers, request body, response headers, response body, timing, and retry count for every request.</p>
-        </article>
-      </div>
-
-      <div class="seo-compare-wrap">
-        <h3>Devman API vs. a typical desktop API client</h3>
-        <table class="seo-compare-table">
-          <thead>
-            <tr>
-              <th scope="col">Devman API</th>
-              <th scope="col">Typical desktop API client</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr><td>Runs in the browser, no install</td><td>Requires a desktop app download</td></tr>
-            <tr><td>No account or sign-up</td><td>Often requires an account</td></tr>
-            <tr><td>Open source, MIT licensed</td><td>Often closed source</td></tr>
-            <tr><td>Self-hostable with Node.js or Vercel</td><td>Usually cannot be self-hosted</td></tr>
-            <tr><td>Free, no paid tier</td><td>Often has paid plans and usage limits</td></tr>
-          </tbody>
-        </table>
-      </div>
-
-      <div class="seo-faq" aria-labelledby="seoFaqTitle">
-        <h3 id="seoFaqTitle">More questions about Devman API</h3>
-        <div class="api-faq-list">
-          <details>
-            <summary>Is Devman API free to use?</summary>
-            <p>Yes. Devman API is completely free, with no account, sign-up, or paid tier.</p>
-          </details>
-          <details>
-            <summary>Do I need to install anything?</summary>
-            <p>No. Devman API runs entirely in your browser. You can also self-host it locally with Node.js or deploy your own instance, but no desktop install is required to use the hosted app.</p>
-          </details>
-          <details>
-            <summary>Is Devman API open source?</summary>
-            <p>Yes. Devman API is open source under the MIT license, and the full source code is available on GitHub.</p>
-          </details>
-          <details>
-            <summary>Can I self-host Devman API?</summary>
-            <p>Yes. Clone the repository and run it locally with Node.js, or deploy your own instance to Vercel.</p>
-          </details>
-          <details>
-            <summary>Does Devman API chain requests together?</summary>
-            <p>Yes. Capture values such as tokens and IDs from one response with jq expressions, then reuse them as variables in later requests within the same workflow.</p>
-          </details>
-        </div>
-      </div>
-    </section>
-
     <footer class="site-footer">
       <div class="footer-credit">
         <span>Developed by</span>
@@ -402,6 +327,7 @@ curl 'https://api.example.com/users' \
       </div>
       <nav class="footer-links" aria-label="Project links">
         <a id="apiInfoLink" href="#api-testing-faq" aria-haspopup="dialog" aria-controls="api-testing-faq" aria-expanded="false">API guide &amp; FAQ</a>
+        <a id="whyDevmanLink" href="#why-devman" aria-haspopup="dialog" aria-controls="why-devman" aria-expanded="false">Why Devman API</a>
         <a href="https://github.com/MahmoudRumaneh/devman" target="_blank" rel="noopener noreferrer">GitHub <span aria-hidden="true">↗</span></a>
         <a id="reportIssueLink" class="report-issue-link" href="https://github.com/MahmoudRumaneh/devman/issues/new" target="_blank" rel="noopener noreferrer">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8v4M12 16h.01"></path><circle cx="12" cy="12" r="9"></circle></svg>
@@ -666,6 +592,108 @@ curl 'https://api.example.com/users' \
       <footer class="modal-actions api-info-actions">
         <p><strong>Ready to test?</strong><span>Close this guide and start with your API base URL.</span></p>
         <button id="apiInfoDone" class="btn primary" type="button">Start testing APIs <span aria-hidden="true">→</span></button>
+      </footer>
+    </section>
+  </div>
+
+  <div id="why-devman" class="modal-backdrop api-info-backdrop" hidden>
+    <section class="modal api-info-modal" role="dialog" aria-modal="true" aria-labelledby="whyDevmanTitle" aria-describedby="whyDevmanIntro">
+      <span class="guide-glow guide-glow-one" aria-hidden="true"></span>
+      <span class="guide-glow guide-glow-two" aria-hidden="true"></span>
+
+      <header class="api-info-head">
+        <div class="api-info-heading">
+          <span class="api-info-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M9 12l2 2 4-4"></path><circle cx="12" cy="12" r="9"></circle></svg>
+          </span>
+          <div>
+            <span class="guide-eyebrow">Free &amp; open source</span>
+            <h2 id="whyDevmanTitle" tabindex="-1">Why teams choose Devman API</h2>
+            <p id="whyDevmanIntro">See how Devman API compares to a typical desktop API client, and get answers about cost, licensing, and self-hosting.</p>
+          </div>
+        </div>
+        <button id="whyDevmanClose" class="guide-close" type="button" aria-label="Close Why Devman API">×</button>
+      </header>
+
+      <div class="api-info-content">
+        <div class="seo-theme-grid">
+          <article>
+            <h3>Free, browser-based, no install</h3>
+            <p>Open the app and start testing. There is nothing to download, and no account or sign-up is required.</p>
+          </article>
+          <article>
+            <h3>Open source &amp; self-hosted</h3>
+            <p>Devman API is MIT licensed. Run the hosted app, self-host it locally with Node.js, or deploy your own instance to Vercel.</p>
+          </article>
+          <article>
+            <h3>Request chaining &amp; workflows</h3>
+            <p>Capture tokens and IDs from a response with jq, then reuse them as variables in later requests within the same staged workflow.</p>
+          </article>
+          <article>
+            <h3>OpenAPI &amp; Swagger testing</h3>
+            <p>Import an OpenAPI 3.x or Swagger 2.0 document, or a Swagger UI URL, and turn documented operations into request-ready tests.</p>
+          </article>
+          <article>
+            <h3>Import your existing collections</h3>
+            <p>Import Postman Collection v2.0/v2.1 files, including nested folders, variables, and bearer tokens, for sequential request chaining without a visual canvas.</p>
+          </article>
+          <article>
+            <h3>Debugging &amp; inspection</h3>
+            <p>Inspect the resolved URL, sent headers, request body, response headers, response body, timing, and retry count for every request.</p>
+          </article>
+        </div>
+
+        <div class="seo-compare-wrap">
+          <h3>Devman API vs. a typical desktop API client</h3>
+          <div class="seo-compare-scroll">
+            <table class="seo-compare-table">
+              <thead>
+                <tr>
+                  <th scope="col">Devman API</th>
+                  <th scope="col">Typical desktop API client</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr><td>Runs in the browser, no install</td><td>Requires a desktop app download</td></tr>
+                <tr><td>No account or sign-up</td><td>Often requires an account</td></tr>
+                <tr><td>Open source, MIT licensed</td><td>Often closed source</td></tr>
+                <tr><td>Self-hostable with Node.js or Vercel</td><td>Usually cannot be self-hosted</td></tr>
+                <tr><td>Free, no paid tier</td><td>Often has paid plans and usage limits</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="seo-faq" aria-labelledby="whyDevmanFaqTitle">
+          <h3 id="whyDevmanFaqTitle">More questions about Devman API</h3>
+          <div class="api-faq-list">
+            <details>
+              <summary>Is Devman API free to use?</summary>
+              <p>Yes. Devman API is completely free, with no account, sign-up, or paid tier.</p>
+            </details>
+            <details>
+              <summary>Do I need to install anything?</summary>
+              <p>No. Devman API runs entirely in your browser. You can also self-host it locally with Node.js or deploy your own instance, but no desktop install is required to use the hosted app.</p>
+            </details>
+            <details>
+              <summary>Is Devman API open source?</summary>
+              <p>Yes. Devman API is open source under the MIT license, and the full source code is available on GitHub.</p>
+            </details>
+            <details>
+              <summary>Can I self-host Devman API?</summary>
+              <p>Yes. Clone the repository and run it locally with Node.js, or deploy your own instance to Vercel.</p>
+            </details>
+            <details>
+              <summary>Does Devman API chain requests together?</summary>
+              <p>Yes. Capture values such as tokens and IDs from one response with jq expressions, then reuse them as variables in later requests within the same workflow.</p>
+            </details>
+          </div>
+        </div>
+      </div>
+
+      <footer class="modal-actions api-info-actions">
+        <p><strong>Ready to test?</strong><span>Close this and start with your API base URL.</span></p>
+        <button id="whyDevmanDone" class="btn primary" type="button">Start testing APIs <span aria-hidden="true">→</span></button>
       </footer>
     </section>
   </div>
