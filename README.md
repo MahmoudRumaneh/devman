@@ -27,6 +27,18 @@
 
 No install, no account, no sign-up. Import Swagger, OpenAPI, Postman, or cURL and start testing complete API workflows in the browser. The same source in this repository powers that site, and it can also be self-hosted locally or deployed to your own Vercel project (see [Deployment](#deployment)).
 
+## 📚 Documentation
+
+- [Getting started](docs/getting-started.md)
+- [OpenAPI & Swagger import](docs/openapi.md) · live: [devman-api.com/openapi-testing](https://devman-api.com/openapi-testing), [devman-api.com/swagger-testing](https://devman-api.com/swagger-testing)
+- [Postman collection import](docs/postman.md) · live: [devman-api.com/postman-alternative](https://devman-api.com/postman-alternative)
+- [cURL import](docs/curl.md) · live: [devman-api.com/curl-api-testing](https://devman-api.com/curl-api-testing)
+- [Workflows](docs/workflows.md) · live: [devman-api.com/automated-api-testing](https://devman-api.com/automated-api-testing)
+- [Variables](docs/variables.md)
+- [Assertions](docs/assertions.md)
+- [Captures](docs/captures.md)
+- [Deployment](docs/deployment.md)
+
 ## Screenshots
 
 ### Building a workflow
